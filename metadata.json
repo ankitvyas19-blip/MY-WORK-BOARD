@@ -1,0 +1,6 @@
+{
+  "name": "CanvasJam — Collaborative Infinite Whiteboard",
+  "description": "Real-time collaborative brainstorming board inspired by FigJam with infinite canvas pan/zoom, live multi-user cursor tracking, cursor chat, sticky notes, magnetic connectors, freehand marker, and shared workshops.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
