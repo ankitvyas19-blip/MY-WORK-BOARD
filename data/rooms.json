@@ -1,0 +1,608 @@
+{
+  "product-strategy": {
+    "roomId": "product-strategy",
+    "title": "Q4 Product Strategy & Architecture Jam",
+    "objects": [
+      {
+        "id": "sec-discovery-1",
+        "type": "section",
+        "x": 80,
+        "y": 100,
+        "width": 580,
+        "height": 490,
+        "title": "01. User Friction & Research Insights",
+        "color": "yellow",
+        "zIndex": 1,
+        "updatedAt": 1792020225874
+      },
+      {
+        "id": "sticky-disc-1",
+        "type": "sticky",
+        "x": 115,
+        "y": 165,
+        "width": 240,
+        "height": 195,
+        "text": "Teams lose context switching between Miro, Slack threads, and linear docs during live design critiques.",
+        "color": "yellow",
+        "authorName": "Maya Lin",
+        "authorColor": "#7C3AED",
+        "votes": [
+          "u-1",
+          "u-2",
+          "u-3",
+          "u-4"
+        ],
+        "fontStyle": "hand",
+        "fontSize": "md",
+        "zIndex": 10,
+        "updatedAt": 1792020225874
+      },
+      {
+        "id": "sticky-disc-2",
+        "type": "sticky",
+        "x": 385,
+        "y": 165,
+        "width": 240,
+        "height": 195,
+        "text": "Remote workshops need instant cursor chat (\"/\") and high-fives so participants feel presence without talking over each other.",
+        "color": "orange",
+        "authorName": "Devon Brooks",
+        "authorColor": "#0D9488",
+        "votes": [
+          "u-1",
+          "u-2",
+          "u-5"
+        ],
+        "fontStyle": "hand",
+        "fontSize": "md",
+        "zIndex": 11,
+        "updatedAt": 1792020225874
+      },
+      {
+        "id": "sticky-disc-3",
+        "type": "sticky",
+        "x": 115,
+        "y": 380,
+        "width": 240,
+        "height": 180,
+        "text": "Sticky note dot-voting needs 1-click tallying so facilitators can rank top ideas in under 60 seconds.",
+        "color": "rose",
+        "authorName": "Elena Rostova",
+        "authorColor": "#E11D48",
+        "votes": [
+          "u-2",
+          "u-3"
+        ],
+        "fontStyle": "hand",
+        "fontSize": "md",
+        "zIndex": 12,
+        "updatedAt": 1792020225874
+      },
+      {
+        "id": "sticky-disc-4",
+        "type": "sticky",
+        "x": 385,
+        "y": 380,
+        "width": 240,
+        "height": 180,
+        "text": "Engineers want magnetic diagram connectors that stay anchored when boxes are rearranged on the infinite canvas.",
+        "color": "blue",
+        "authorName": "Liam Chen",
+        "authorColor": "#2563EB",
+        "votes": [
+          "u-1",
+          "u-3",
+          "u-4",
+          "u-6",
+          "u-7"
+        ],
+        "fontStyle": "hand",
+        "fontSize": "md",
+        "zIndex": 13,
+        "updatedAt": 1792020225874
+      },
+      {
+        "id": "sec-discovery-2",
+        "type": "section",
+        "x": 720,
+        "y": 100,
+        "width": 740,
+        "height": 490,
+        "title": "02. Real-Time Collaboration Engine Flow",
+        "color": "violet",
+        "zIndex": 2,
+        "updatedAt": 1792020225874
+      },
+      {
+        "id": "shape-arch-client",
+        "type": "shape",
+        "shapeKind": "pill",
+        "x": 765,
+        "y": 205,
+        "width": 185,
+        "height": 86,
+        "text": "Infinite Canvas Viewport\n(60fps Pan & Zoom)",
+        "color": "blue",
+        "fillStyle": "tinted",
+        "fontStyle": "sans",
+        "zIndex": 20,
+        "updatedAt": 1792020225874
+      },
+      {
+        "id": "shape-arch-ws",
+        "type": "shape",
+        "shapeKind": "diamond",
+        "x": 1020,
+        "y": 180,
+        "width": 175,
+        "height": 135,
+        "text": "WebSocket Sync\n& Delta Broadcast",
+        "color": "violet",
+        "fillStyle": "tinted",
+        "fontStyle": "sans",
+        "zIndex": 21,
+        "updatedAt": 1792020225874
+      },
+      {
+        "id": "shape-arch-store",
+        "type": "shape",
+        "shapeKind": "cylinder",
+        "x": 1255,
+        "y": 195,
+        "width": 170,
+        "height": 105,
+        "text": "Authoritative\nRoom State Store",
+        "color": "emerald",
+        "fillStyle": "tinted",
+        "fontStyle": "sans",
+        "zIndex": 22,
+        "updatedAt": 1792020225874
+      },
+      {
+        "id": "shape-arch-presence",
+        "type": "shape",
+        "shapeKind": "rect",
+        "x": 995,
+        "y": 415,
+        "width": 225,
+        "height": 92,
+        "text": "Live Cursor Telemetry\n+ Ephemeral Cursor Chat",
+        "color": "teal",
+        "fillStyle": "tinted",
+        "fontStyle": "sans",
+        "zIndex": 23,
+        "updatedAt": 1792020225874
+      },
+      {
+        "id": "conn-arch-1",
+        "type": "connector",
+        "fromId": "shape-arch-client",
+        "fromPort": "right",
+        "fromPoint": {
+          "x": 950,
+          "y": 248
+        },
+        "toId": "shape-arch-ws",
+        "toPort": "left",
+        "toPoint": {
+          "x": 1020,
+          "y": 248
+        },
+        "label": "Delta Events",
+        "color": "violet",
+        "lineStyle": "solid",
+        "curveStyle": "curved",
+        "zIndex": 18,
+        "updatedAt": 1792020225874
+      },
+      {
+        "id": "conn-arch-2",
+        "type": "connector",
+        "fromId": "shape-arch-ws",
+        "fromPort": "right",
+        "fromPoint": {
+          "x": 1195,
+          "y": 248
+        },
+        "toId": "shape-arch-store",
+        "toPort": "left",
+        "toPoint": {
+          "x": 1255,
+          "y": 248
+        },
+        "label": "Idempotent Merge",
+        "color": "emerald",
+        "lineStyle": "solid",
+        "curveStyle": "curved",
+        "zIndex": 19,
+        "updatedAt": 1792020225874
+      },
+      {
+        "id": "conn-arch-3",
+        "type": "connector",
+        "fromId": "shape-arch-ws",
+        "fromPort": "bottom",
+        "fromPoint": {
+          "x": 1107,
+          "y": 315
+        },
+        "toId": "shape-arch-presence",
+        "toPort": "top",
+        "toPoint": {
+          "x": 1107,
+          "y": 415
+        },
+        "label": "30Hz Broadcast",
+        "color": "teal",
+        "lineStyle": "dashed",
+        "curveStyle": "curved",
+        "zIndex": 19,
+        "updatedAt": 1792020225874
+      },
+      {
+        "id": "stamp-init-1",
+        "type": "stamp",
+        "stampKind": "fire",
+        "x": 600,
+        "y": 365,
+        "scale": 1,
+        "rotation": 12,
+        "authorName": "Maya Lin",
+        "authorColor": "#7C3AED",
+        "zIndex": 40,
+        "updatedAt": 1792020225874
+      },
+      {
+        "id": "stamp-init-2",
+        "type": "stamp",
+        "stampKind": "star",
+        "x": 330,
+        "y": 155,
+        "scale": 1,
+        "rotation": -10,
+        "authorName": "Devon Brooks",
+        "authorColor": "#0D9488",
+        "zIndex": 41,
+        "updatedAt": 1792020225874
+      },
+      {
+        "id": "text-banner-1",
+        "type": "text",
+        "x": 85,
+        "y": 30,
+        "width": 780,
+        "height": 52,
+        "text": "Q4 Collaborative Product Jam — Drag, Vote, Connect & Sketch Live",
+        "color": "slate",
+        "fontStyle": "sans",
+        "fontSize": "xl",
+        "zIndex": 30,
+        "updatedAt": 1792020225874
+      }
+    ],
+    "timer": {
+      "durationSeconds": 300,
+      "remainingSeconds": 300,
+      "isRunning": false,
+      "startedAt": null
+    },
+    "activities": [
+      {
+        "id": "act-init-1792020225881",
+        "userName": "Workspace",
+        "userColor": "#6366F1",
+        "action": "Initialized \"Q4 Product Strategy & Architecture Jam\" board",
+        "timestamp": 1792020225881
+      }
+    ]
+  },
+  "sprint-retro": {
+    "roomId": "sprint-retro",
+    "title": "Sprint 24 Team Retrospective",
+    "objects": [
+      {
+        "id": "retro-title",
+        "type": "text",
+        "x": 100,
+        "y": 35,
+        "width": 680,
+        "height": 50,
+        "text": "Sprint 24 Retrospective — Grab a Sticky Note (S) & Add Your Reflections",
+        "color": "slate",
+        "fontStyle": "sans",
+        "fontSize": "xl",
+        "zIndex": 5,
+        "updatedAt": 1792020225874
+      },
+      {
+        "id": "retro-sec-1",
+        "type": "section",
+        "x": 100,
+        "y": 110,
+        "width": 360,
+        "height": 500,
+        "title": "01. What Energized Us (Wins)",
+        "color": "emerald",
+        "zIndex": 1,
+        "updatedAt": 1792020225874
+      },
+      {
+        "id": "retro-sec-2",
+        "type": "section",
+        "x": 490,
+        "y": 110,
+        "width": 360,
+        "height": 500,
+        "title": "02. What Slowed Us Down (Friction)",
+        "color": "rose",
+        "zIndex": 2,
+        "updatedAt": 1792020225874
+      },
+      {
+        "id": "retro-sec-3",
+        "type": "section",
+        "x": 880,
+        "y": 110,
+        "width": 360,
+        "height": 500,
+        "title": "03. Committed Next Actions",
+        "color": "blue",
+        "zIndex": 3,
+        "updatedAt": 1792020225874
+      },
+      {
+        "id": "retro-s-1",
+        "type": "sticky",
+        "x": 135,
+        "y": 175,
+        "width": 285,
+        "height": 185,
+        "text": "Zero-downtime database migration completed 2 days ahead of schedule!",
+        "color": "emerald",
+        "authorName": "Liam Chen",
+        "authorColor": "#16A34A",
+        "votes": [
+          "u-1",
+          "u-2",
+          "u-3"
+        ],
+        "fontStyle": "hand",
+        "fontSize": "md",
+        "zIndex": 10,
+        "updatedAt": 1792020225874
+      },
+      {
+        "id": "retro-s-2",
+        "type": "sticky",
+        "x": 525,
+        "y": 175,
+        "width": 285,
+        "height": 185,
+        "text": "Staging E2E test suite took 24 minutes per PR — we should parallelize shards.",
+        "color": "rose",
+        "authorName": "Elena Rostova",
+        "authorColor": "#E11D48",
+        "votes": [
+          "u-1",
+          "u-4",
+          "u-5",
+          "u-6"
+        ],
+        "fontStyle": "hand",
+        "fontSize": "md",
+        "zIndex": 11,
+        "updatedAt": 1792020225874
+      },
+      {
+        "id": "retro-s-3",
+        "type": "sticky",
+        "x": 915,
+        "y": 175,
+        "width": 285,
+        "height": 185,
+        "text": "Owner: @Devon — Split Playwright CI into 4 concurrent workers by Wednesday.",
+        "color": "blue",
+        "authorName": "Devon Brooks",
+        "authorColor": "#2563EB",
+        "votes": [
+          "u-1",
+          "u-2"
+        ],
+        "fontStyle": "hand",
+        "fontSize": "md",
+        "zIndex": 12,
+        "updatedAt": 1792020225874
+      }
+    ],
+    "timer": {
+      "durationSeconds": 300,
+      "remainingSeconds": 300,
+      "isRunning": false,
+      "startedAt": null
+    },
+    "activities": [
+      {
+        "id": "act-init-1792020225881",
+        "userName": "Workspace",
+        "userColor": "#6366F1",
+        "action": "Initialized \"Sprint 24 Team Retrospective\" board",
+        "timestamp": 1792020225881
+      }
+    ]
+  },
+  "prioritization": {
+    "roomId": "prioritization",
+    "title": "2x2 Impact vs. Effort Prioritization",
+    "objects": [
+      {
+        "id": "mat-q1",
+        "type": "section",
+        "x": 120,
+        "y": 90,
+        "width": 520,
+        "height": 330,
+        "title": "High Impact · Low Effort (Quick Wins)",
+        "color": "emerald",
+        "zIndex": 1,
+        "updatedAt": 1792020225874
+      },
+      {
+        "id": "mat-q2",
+        "type": "section",
+        "x": 670,
+        "y": 90,
+        "width": 520,
+        "height": 330,
+        "title": "High Impact · High Effort (Strategic Bets)",
+        "color": "violet",
+        "zIndex": 2,
+        "updatedAt": 1792020225874
+      },
+      {
+        "id": "mat-q3",
+        "type": "section",
+        "x": 120,
+        "y": 450,
+        "width": 520,
+        "height": 330,
+        "title": "Low Impact · Low Effort (Polish & Fill-Ins)",
+        "color": "yellow",
+        "zIndex": 3,
+        "updatedAt": 1792020225874
+      },
+      {
+        "id": "mat-q4",
+        "type": "section",
+        "x": 670,
+        "y": 450,
+        "width": 520,
+        "height": 330,
+        "title": "Low Impact · High Effort (Defer / Drop)",
+        "color": "slate",
+        "zIndex": 4,
+        "updatedAt": 1792020225874
+      },
+      {
+        "id": "mat-sticky-1",
+        "type": "sticky",
+        "x": 160,
+        "y": 155,
+        "width": 220,
+        "height": 175,
+        "text": "Keyboard shortcut cheat sheet & \"/\" live cursor chat bubble",
+        "color": "emerald",
+        "authorName": "Maya Lin",
+        "authorColor": "#7C3AED",
+        "votes": [
+          "u-1",
+          "u-2",
+          "u-3",
+          "u-4"
+        ],
+        "fontStyle": "hand",
+        "fontSize": "md",
+        "zIndex": 10,
+        "updatedAt": 1792020225874
+      },
+      {
+        "id": "mat-sticky-2",
+        "type": "sticky",
+        "x": 710,
+        "y": 155,
+        "width": 220,
+        "height": 175,
+        "text": "Multi-room workspace sync with SVG & JSON board export",
+        "color": "violet",
+        "authorName": "Liam Chen",
+        "authorColor": "#2563EB",
+        "votes": [
+          "u-1",
+          "u-2",
+          "u-3"
+        ],
+        "fontStyle": "hand",
+        "fontSize": "md",
+        "zIndex": 11,
+        "updatedAt": 1792020225874
+      }
+    ],
+    "timer": {
+      "durationSeconds": 300,
+      "remainingSeconds": 300,
+      "isRunning": false,
+      "startedAt": null
+    },
+    "activities": [
+      {
+        "id": "act-init-1792020225882",
+        "userName": "Workspace",
+        "userColor": "#6366F1",
+        "action": "Initialized \"2x2 Impact vs. Effort Prioritization\" board",
+        "timestamp": 1792020225882
+      }
+    ]
+  },
+  "page-1": {
+    "roomId": "page-1",
+    "title": "Page 1",
+    "objects": [
+      {
+        "id": "text-1792020701802",
+        "type": "text",
+        "x": 624,
+        "y": 92,
+        "width": 320,
+        "height": 54,
+        "text": "Heading or Note",
+        "color": "slate",
+        "fontStyle": "sans",
+        "fontSize": "lg",
+        "zIndex": 1802,
+        "updatedAt": 1792020701802
+      },
+      {
+        "id": "text-1792020660334",
+        "type": "text",
+        "x": 130,
+        "y": 99,
+        "width": 320,
+        "height": 54,
+        "text": "life is awesome???",
+        "color": "slate",
+        "fontStyle": "sans",
+        "fontSize": "lg",
+        "zIndex": 60334,
+        "updatedAt": 1792020660334
+      }
+    ],
+    "timer": {
+      "durationSeconds": 300,
+      "remainingSeconds": 300,
+      "isRunning": false,
+      "startedAt": null
+    },
+    "activities": [
+      {
+        "id": "act-1792020701802-qgjfx",
+        "userName": "Julian Mercer",
+        "userColor": "#EA580C",
+        "action": "Added text",
+        "timestamp": 1792020701802
+      },
+      {
+        "id": "act-1792020660374-wmi2m",
+        "userName": "Aria Vance",
+        "userColor": "#4F46E5",
+        "action": "Added text",
+        "timestamp": 1792020660374
+      },
+      {
+        "id": "act-init-1792020228824",
+        "userName": "Workspace",
+        "userColor": "#6366F1",
+        "action": "Initialized \"Page 1\" board",
+        "timestamp": 1792020228824
+      }
+    ]
+  }
+}

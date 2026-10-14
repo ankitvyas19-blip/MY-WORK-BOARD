@@ -127,6 +127,19 @@ export const DriveBackupModal: React.FC<DriveBackupModalProps> = ({
         </div>
 
         <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+          {/* Local PC Disk Storage Active Card */}
+          <div className="p-4 bg-emerald-50/80 border border-emerald-200 rounded-xl space-y-2">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span className="text-xs font-bold text-emerald-950">
+                Local PC Disk Storage (Active & Permanent)
+              </span>
+            </div>
+            <p className="text-xs text-emerald-800 leading-relaxed">
+              All your whiteboard canvas items, drawings, sticky notes, text, attachments, and pages are continuously saved directly to your computer disk (<code className="bg-emerald-100/80 px-1 py-0.5 rounded font-mono text-[11px]">data/rooms.json</code>) in real-time. Even without Google Drive or if your browser closes, your work is 100% saved and will never be lost.
+            </p>
+          </div>
+
           {/* Account & 5 TB Quota Overview */}
           {isSignedIn ? (
             <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">

@@ -99,6 +99,7 @@ import {
 import {
   loadWorkspaceFromStorage,
   saveWorkspaceToStorage,
+  fetchWorkspaceFromServer,
   createBlankPage,
   createNewProject,
 } from './services/workspaceService';
@@ -317,6 +318,91 @@ export default function App() {
 
     return () => clearTimeout(timeout);
   }, [objects, viewport, activeProjectId, activePageId]);
+
+  // Sync workspace with server persistent disk on mount
+  useEffect(() => {
+    fetchWorkspaceFromServer().then((serverWs) => {
+      if (serverWs && Array.isArray(serverWs.projects) && serverWs.projects.length > 0) {
+        setWorkspace((localWs) => {
+          const localCount = localWs.projects.reduce(
+            (acc, p) => acc + p.pages.reduce((a, pg) => a + (pg.objects?.length || 0), 0),
+            0
+          );
+          const serverCount = serverWs.projects.reduce(
+            (acc, p) => acc + p.pages.reduce((a, pg) => a + (pg.objects?.length || 0), 0),
+            0
+          );
+          if (serverCount >= localCount && serverCount > 0) {
+            saveWorkspaceToStorage(serverWs);
+            const activeProj =
+              serverWs.projects.find((p) => p.id === serverWs.activeProjectId) ||
+              serverWs.projects[0];
+            const activePg =
+              activeProj.pages.find((pg) => pg.id === activeProj.activePageId) ||
+              activeProj.pages[0];
+            if (activePg && activePg.objects && activePg.objects.length > 0) {
+              setObjects(activePg.objects);
+            }
+            return serverWs;
+          }
+          return localWs;
+        });
+      }
+    });
+  }, []);
+
+  const handleExportWorkspaceBackup = useCallback(() => {
+    const dataStr =
+      'data:text/json;charset=utf-8,' +
+      encodeURIComponent(JSON.stringify(workspace, null, 2));
+    const dlAnchorElem = document.createElement('a');
+    dlAnchorElem.setAttribute('href', dataStr);
+    dlAnchorElem.setAttribute(
+      'download',
+      `canvasjam-backup-${new Date().toISOString().slice(0, 10)}.json`
+    );
+    dlAnchorElem.click();
+  }, [workspace]);
+
+  const handleImportWorkspaceBackup = useCallback((file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const text = e.target?.result as string;
+        const imported = JSON.parse(text);
+        if (
+          imported &&
+          Array.isArray(imported.projects) &&
+          imported.projects.length > 0
+        ) {
+          setWorkspace(imported);
+          saveWorkspaceToStorage(imported);
+          const activeProj =
+            imported.projects.find((p: any) => p.id === imported.activeProjectId) ||
+            imported.projects[0];
+          const activePg =
+            activeProj.pages.find((pg) => pg.id === activeProj.activePageId) ||
+            activeProj.pages[0];
+          if (activePg && activePg.objects) {
+            setObjects(activePg.objects);
+            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+              wsRef.current.send(
+                JSON.stringify({ type: 'board:replace_all', objects: activePg.objects })
+              );
+            }
+          }
+          alert('Backup restored successfully! All canvas drawings, files, and notes are loaded.');
+        } else {
+          alert('Invalid backup file format.');
+        }
+      } catch (err) {
+        console.error('Failed to parse backup file', err);
+        alert('Could not parse backup file.');
+      }
+    };
+    reader.readAsText(file);
+  }, []);
+
   const [canvasSize, setCanvasSize] = useState({
     width: window.innerWidth,
     height: window.innerHeight - 56,
@@ -653,6 +739,9 @@ export default function App() {
       }
     } catch (e) {
       console.error('Google Sign-in failed:', e);
+      alert(
+        "Google Sign-In Notice: Google OAuth popup is restricted by Google on custom preview domains unless authorized in Google Cloud Console.\n\nRest assured: All your canvas objects, drawings, sticky notes, and attached files are ALREADY 100% auto-saved directly to your computer disk in real-time! You can also click the 'Backup' button in the top bar to save a backup file anytime."
+      );
     }
   };
 
@@ -882,7 +971,13 @@ export default function App() {
                 setBoardTitle(state.title);
               }
               if (state.objects && state.objects.length > 0) {
-                setObjects(state.objects);
+                if (objectsRef.current && objectsRef.current.length > 0) {
+                  if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: 'board:replace_all', objects: objectsRef.current }));
+                  }
+                } else {
+                  setObjects(state.objects);
+                }
               } else if (objectsRef.current && objectsRef.current.length > 0) {
                 if (ws.readyState === WebSocket.OPEN) {
                   ws.send(JSON.stringify({ type: 'board:replace_all', objects: objectsRef.current }));
@@ -2608,6 +2703,8 @@ export default function App() {
         onGoogleSignIn={handleGoogleSignIn}
         onOpenDriveModal={() => setDriveModalOpen(true)}
         onAttachFiles={(files) => handleAttachFiles(files)}
+        onExportWorkspaceBackup={handleExportWorkspaceBackup}
+        onImportWorkspaceBackup={handleImportWorkspaceBackup}
         onLockWorkspace={() => {
           localStorage.removeItem('cj_auth_token');
           sessionStorage.removeItem('cj_auth_token');

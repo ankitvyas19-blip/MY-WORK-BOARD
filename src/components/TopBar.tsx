@@ -23,6 +23,7 @@ import {
   Trash2,
   Check,
   ChevronDown,
+  SlidersHorizontal,
 } from 'lucide-react';
 import {
   BoardProject,
@@ -82,6 +83,8 @@ export interface TopBarProps {
   onOpenDriveModal: () => void;
   onAttachFiles: (files: FileList | File[]) => void;
   onLockWorkspace?: () => void;
+  onExportWorkspaceBackup?: () => void;
+  onImportWorkspaceBackup?: (file: File) => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -127,10 +130,16 @@ export const TopBar: React.FC<TopBarProps> = ({
   onOpenDriveModal,
   onAttachFiles,
   onLockWorkspace,
+  onExportWorkspaceBackup,
+  onImportWorkspaceBackup,
 }) => {
+  const restoreFileInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
   // Dropdown menus
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [pageMenuOpen, setPageMenuOpen] = useState(false);
+  const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
 
   // Renaming state
   const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null);
@@ -146,10 +155,10 @@ export const TopBar: React.FC<TopBarProps> = ({
   // Timer & popovers
   const [showTimerPopover, setShowTimerPopover] = useState(false);
   const [displaySeconds, setDisplaySeconds] = useState(timer.remainingSeconds);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const projectMenuRef = useRef<HTMLDivElement | null>(null);
   const pageMenuRef = useRef<HTMLDivElement | null>(null);
+  const toolsMenuRef = useRef<HTMLDivElement | null>(null);
 
   // Active Project & Page resolution
   const activeProject = projects.find((p) => p.id === activeProjectId) || projects[0] || {
@@ -173,19 +182,17 @@ export const TopBar: React.FC<TopBarProps> = ({
   // Click outside listener for dropdowns
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (
-        projectMenuRef.current &&
-        !projectMenuRef.current.contains(event.target as Node)
-      ) {
+      const target = event.target as Node;
+      if (projectMenuRef.current && !projectMenuRef.current.contains(target)) {
         setProjectMenuOpen(false);
         setRenamingProjectId(null);
       }
-      if (
-        pageMenuRef.current &&
-        !pageMenuRef.current.contains(event.target as Node)
-      ) {
+      if (pageMenuRef.current && !pageMenuRef.current.contains(target)) {
         setPageMenuOpen(false);
         setRenamingPageId(null);
+      }
+      if (toolsMenuRef.current && !toolsMenuRef.current.contains(target)) {
+        setToolsMenuOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -227,7 +234,8 @@ export const TopBar: React.FC<TopBarProps> = ({
   };
 
   return (
-    <header className="h-14 border-b border-slate-200/90 bg-white/95 backdrop-blur-md px-3 sm:px-4 flex items-center justify-between z-30 shrink-0 select-none shadow-xs">
+    <header className="h-14 border-b border-slate-200/90 bg-white/95 backdrop-blur-md px-3 sm:px-4 flex items-center justify-between z-30 shrink-0 select-none shadow-xs w-full flex-nowrap overflow-hidden">
+      {/* Hidden File Input for Attachments */}
       <input
         ref={fileInputRef}
         type="file"
@@ -242,22 +250,40 @@ export const TopBar: React.FC<TopBarProps> = ({
         }}
       />
 
-      {/* Zone 1: Workspace Hierarchy (CanvasJam / Project Switcher / Page Switcher & Rename) */}
-      <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
+      {/* Hidden File Input for Workspace JSON Restore */}
+      <input
+        type="file"
+        ref={restoreFileInputRef}
+        accept=".json,application/json"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file && onImportWorkspaceBackup) {
+            onImportWorkspaceBackup(file);
+            e.target.value = '';
+          }
+        }}
+      />
+
+      {/* ========================================================= */}
+      {/* ZONE 1 (LEFT): Workspace Identity & Page Navigation       */}
+      {/* ========================================================= */}
+      <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 shrink-0">
+        {/* Brand Logo */}
         <a
           href="#canvas"
           onClick={(e) => {
             e.preventDefault();
             onFitToContent();
           }}
-          className="text-base font-bold tracking-tight text-slate-900 whitespace-nowrap shrink-0 hover:text-indigo-600 transition-colors flex items-center gap-1.5"
+          className="text-sm sm:text-base font-extrabold tracking-tight text-slate-900 whitespace-nowrap shrink-0 hover:text-indigo-600 transition-colors flex items-center gap-1.5"
           title="CanvasJam - Click to center canvas"
         >
-          <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 inline-block"></span>
-          CanvasJam
+          <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 inline-block shadow-xs"></span>
+          <span>CanvasJam</span>
         </a>
 
-        <span className="text-slate-300 font-light select-none" aria-hidden="true">/</span>
+        <span className="text-slate-300 font-light select-none text-xs" aria-hidden="true">/</span>
 
         {/* Project Switcher Dropdown */}
         <div className="relative" ref={projectMenuRef}>
@@ -266,8 +292,9 @@ export const TopBar: React.FC<TopBarProps> = ({
             onClick={() => {
               setProjectMenuOpen((prev) => !prev);
               setPageMenuOpen(false);
+              setToolsMenuOpen(false);
             }}
-            className="flex items-center gap-1.5 px-2 py-1 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200/80 rounded-md border border-slate-200/80 transition-colors max-w-[140px] sm:max-w-[180px] truncate cursor-pointer"
+            className="flex items-center gap-1.5 px-2 py-1 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200/80 rounded-md border border-slate-200/80 transition-colors max-w-[100px] sm:max-w-[140px] truncate cursor-pointer"
             title={`Project: ${activeProject.name} (Click to switch or manage projects)`}
           >
             <Folder className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
@@ -405,10 +432,10 @@ export const TopBar: React.FC<TopBarProps> = ({
           )}
         </div>
 
-        <span className="text-slate-300 font-light select-none" aria-hidden="true">/</span>
+        <span className="text-slate-300 font-light select-none text-xs" aria-hidden="true">/</span>
 
         {/* Page Switcher & Direct Inline Rename */}
-        <div className="relative flex items-center gap-1" ref={pageMenuRef}>
+        <div className="relative flex items-center" ref={pageMenuRef}>
           {editingCurrentPageInline ? (
             <div className="flex items-center gap-1">
               <input
@@ -424,7 +451,7 @@ export const TopBar: React.FC<TopBarProps> = ({
                   }
                 }}
                 autoFocus
-                className="text-xs font-semibold text-slate-900 bg-white border border-indigo-500 rounded px-2 py-0.5 focus:outline-none w-36 sm:w-48"
+                className="text-xs font-semibold text-slate-900 bg-white border border-indigo-500 rounded px-2 py-0.5 focus:outline-none w-24 sm:w-36"
               />
               <button
                 type="button"
@@ -441,8 +468,9 @@ export const TopBar: React.FC<TopBarProps> = ({
                 onClick={() => {
                   setPageMenuOpen((prev) => !prev);
                   setProjectMenuOpen(false);
+                  setToolsMenuOpen(false);
                 }}
-                className="flex items-center gap-1.5 px-2 py-1 text-xs font-semibold text-slate-800 hover:text-indigo-600 bg-slate-100 hover:bg-slate-200/80 rounded-l-md border-y border-l border-slate-200/80 transition-colors max-w-[130px] sm:max-w-[200px] truncate cursor-pointer"
+                className="flex items-center gap-1.5 px-2 py-1 text-xs font-semibold text-slate-800 hover:text-indigo-600 bg-slate-100 hover:bg-slate-200/80 rounded-l-md border-y border-l border-slate-200/80 transition-colors max-w-[90px] sm:max-w-[130px] truncate cursor-pointer"
                 title={`Page: ${activePage.name} (Click to open page menu)`}
               >
                 <Layers className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
@@ -464,11 +492,11 @@ export const TopBar: React.FC<TopBarProps> = ({
           <button
             type="button"
             onClick={() => onCreatePage()}
-            className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-indigo-600 hover:text-indigo-700 bg-indigo-50/80 hover:bg-indigo-100 rounded-md border border-indigo-100 transition-colors whitespace-nowrap cursor-pointer ml-0.5"
+            className="flex items-center gap-1 px-1.5 py-1 text-xs font-medium text-indigo-600 hover:text-indigo-700 bg-indigo-50/80 hover:bg-indigo-100 rounded-md border border-indigo-100 transition-colors whitespace-nowrap cursor-pointer ml-1 shrink-0"
             title="Create a new blank page in this project"
           >
             <Plus className="w-3 h-3" />
-            <span className="hidden md:inline">Page</span>
+            <span className="hidden xl:inline text-[11px]">Page</span>
           </button>
 
           {/* Page Menu Popover */}
@@ -476,7 +504,7 @@ export const TopBar: React.FC<TopBarProps> = ({
             <div className="absolute left-0 top-full mt-1.5 w-64 bg-white rounded-lg shadow-xl border border-slate-200 py-1.5 z-50 animate-in fade-in zoom-in-95 duration-100">
               <div className="px-3 py-1 flex items-center justify-between border-b border-slate-100 mb-1">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                  Pages in Project ({activeProject.pages.length})
+                  Pages ({activeProject.pages.length})
                 </span>
                 <button
                   type="button"
@@ -601,134 +629,197 @@ export const TopBar: React.FC<TopBarProps> = ({
           )}
         </div>
 
-        {/* Local Storage Auto-Saved Indicator */}
+        {/* Real-time Persistence Status Badge */}
         <div
-          className="hidden xl:flex items-center gap-1 text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100"
-          title="All projects and pages are saved locally and synced"
+          className="hidden lg:flex items-center gap-1 text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 whitespace-nowrap shrink-0"
+          title="Disk persistence active: all drawings, sticky notes, attachments, and pages are automatically saved to your PC."
         >
           <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
           <span>Saved</span>
         </div>
-
-        {/* Search Bar */}
-        {onSearchChange && (
-          <div className="relative flex items-center ml-1 sm:ml-2">
-            <div className="relative flex items-center">
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => onSearchChange(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Escape') {
-                    onSearchChange('');
-                  } else if (e.key === 'Enter') {
-                    if (e.shiftKey && onPrevSearchMatch) {
-                      e.preventDefault();
-                      onPrevSearchMatch();
-                    } else if (onNextSearchMatch) {
-                      e.preventDefault();
-                      onNextSearchMatch();
-                    }
-                  }
-                }}
-                placeholder="Search notes, text, sections..."
-                className="w-32 sm:w-48 md:w-56 pl-7 pr-12 py-1 text-xs bg-slate-100/90 hover:bg-slate-100 focus:bg-white text-slate-800 placeholder-slate-400 rounded-lg border border-slate-200/90 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all font-medium"
-              />
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2 pointer-events-none" />
-
-              {searchQuery && (
-                <div className="absolute right-1.5 flex items-center gap-1">
-                  {searchMatchCount > 0 ? (
-                    <span className="text-[10px] font-mono font-semibold text-slate-500 bg-slate-200/80 px-1 py-0.5 rounded tabular-nums">
-                      {searchCurrentIndex + 1}/{searchMatchCount}
-                    </span>
-                  ) : (
-                    <span className="text-[10px] font-mono text-slate-400 bg-slate-200/60 px-1 py-0.5 rounded">
-                      0
-                    </span>
-                  )}
-
-                  {searchMatchCount > 1 && onPrevSearchMatch && onNextSearchMatch && (
-                    <div className="flex items-center">
-                      <button
-                        type="button"
-                        onClick={onPrevSearchMatch}
-                        className="p-0.5 text-slate-500 hover:text-slate-900 rounded hover:bg-slate-200 transition-colors cursor-pointer"
-                        title="Previous match (Shift+Enter)"
-                      >
-                        <ArrowUp className="w-3 h-3" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={onNextSearchMatch}
-                        className="p-0.5 text-slate-500 hover:text-slate-900 rounded hover:bg-slate-200 transition-colors cursor-pointer"
-                        title="Next match (Enter)"
-                      >
-                        <ArrowDown className="w-3 h-3" />
-                      </button>
-                    </div>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() => onSearchChange('')}
-                    className="p-0.5 text-slate-400 hover:text-slate-700 rounded transition-colors cursor-pointer"
-                    title="Clear search (Esc)"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
       </div>
 
-      {/* Zone 2: Navigation Links & Controls */}
-      <nav className="hidden lg:flex items-center gap-4 text-xs font-medium text-slate-600">
-        <button
-          type="button"
-          onClick={onOpenTemplates}
-          className="hover:text-slate-900 transition-colors whitespace-nowrap cursor-pointer"
-        >
-          Templates
-        </button>
+      {/* ========================================================= */}
+      {/* ZONE 2 (CENTER): Search, Canvas Tools & Timer             */}
+      {/* ========================================================= */}
+      <div className="flex items-center gap-2 min-w-0 shrink px-2 justify-center">
+        {/* Search Bar */}
+        {onSearchChange && (
+          <div className="relative flex items-center">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => onSearchChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  onSearchChange('');
+                } else if (e.key === 'Enter') {
+                  if (e.shiftKey && onPrevSearchMatch) {
+                    e.preventDefault();
+                    onPrevSearchMatch();
+                  } else if (onNextSearchMatch) {
+                    e.preventDefault();
+                    onNextSearchMatch();
+                  }
+                }
+              }}
+              placeholder="Search canvas..."
+              className="w-24 sm:w-32 md:w-44 lg:w-48 pl-7 pr-8 py-1 text-xs bg-slate-100/90 hover:bg-slate-100 focus:bg-white text-slate-800 placeholder-slate-400 rounded-lg border border-slate-200/90 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/20 transition-all font-medium"
+            />
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2 pointer-events-none" />
 
-        <button
-          type="button"
-          onClick={onCycleGridMode}
-          className="hover:text-slate-900 transition-colors whitespace-nowrap cursor-pointer"
-          title="Toggle Canvas Grid (Dots / Lines / None)"
-        >
-          Grid: {gridMode.toUpperCase()}
-        </button>
+            {searchQuery && (
+              <div className="absolute right-1 flex items-center gap-0.5">
+                {searchMatchCount > 0 ? (
+                  <span className="text-[10px] font-mono font-semibold text-slate-500 bg-slate-200/80 px-1 py-0.5 rounded tabular-nums">
+                    {searchCurrentIndex + 1}/{searchMatchCount}
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-mono text-slate-400 bg-slate-200/60 px-1 py-0.5 rounded">
+                    0
+                  </span>
+                )}
+                {searchMatchCount > 1 && onPrevSearchMatch && onNextSearchMatch && (
+                  <div className="flex items-center">
+                    <button
+                      type="button"
+                      onClick={onPrevSearchMatch}
+                      className="p-0.5 text-slate-500 hover:text-slate-900 rounded hover:bg-slate-200 transition-colors cursor-pointer"
+                      title="Previous match (Shift+Enter)"
+                    >
+                      <ArrowUp className="w-3 h-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onNextSearchMatch}
+                      className="p-0.5 text-slate-500 hover:text-slate-900 rounded hover:bg-slate-200 transition-colors cursor-pointer"
+                      title="Next match (Enter)"
+                    >
+                      <ArrowDown className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => onSearchChange('')}
+                  className="p-0.5 text-slate-400 hover:text-slate-700 rounded transition-colors cursor-pointer"
+                  title="Clear search (Esc)"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
-        <button
-          type="button"
-          onClick={onFitToContent}
-          className="hover:text-slate-900 transition-colors whitespace-nowrap cursor-pointer"
-          title="Center and fit all board objects into screen"
-        >
-          Fit Canvas
-        </button>
+        {/* Wide Screen View Buttons (>= xl) */}
+        <div className="hidden xl:flex items-center gap-2 text-xs font-medium text-slate-600 shrink-0">
+          <button
+            type="button"
+            onClick={onOpenTemplates}
+            className="px-2 py-1 rounded hover:bg-slate-100 hover:text-slate-900 transition-colors whitespace-nowrap cursor-pointer"
+          >
+            Templates
+          </button>
+          <button
+            type="button"
+            onClick={onCycleGridMode}
+            className="px-2 py-1 rounded hover:bg-slate-100 hover:text-slate-900 transition-colors whitespace-nowrap cursor-pointer"
+            title="Toggle Canvas Grid (Dots / Lines / None)"
+          >
+            Grid: {gridMode.toUpperCase()}
+          </button>
+          <button
+            type="button"
+            onClick={onFitToContent}
+            className="px-2 py-1 rounded hover:bg-slate-100 hover:text-slate-900 transition-colors whitespace-nowrap cursor-pointer"
+            title="Fit all board objects into screen"
+          >
+            Fit Canvas
+          </button>
+          <button
+            type="button"
+            onClick={onOpenActivityAndVotes}
+            className="px-2 py-1 rounded hover:bg-slate-100 hover:text-slate-900 transition-colors whitespace-nowrap cursor-pointer"
+          >
+            Activity
+          </button>
+        </div>
 
-        <button
-          type="button"
-          onClick={onOpenActivityAndVotes}
-          className="hover:text-slate-900 transition-colors whitespace-nowrap cursor-pointer"
-        >
-          Activity & Votes
-        </button>
+        {/* Compact View Dropdown (< xl) */}
+        <div className="relative xl:hidden" ref={toolsMenuRef}>
+          <button
+            type="button"
+            onClick={() => {
+              setToolsMenuOpen((prev) => !prev);
+              setProjectMenuOpen(false);
+              setPageMenuOpen(false);
+            }}
+            className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200/80 rounded-md border border-slate-200/80 transition-colors whitespace-nowrap cursor-pointer"
+            title="Canvas Options & Tools"
+          >
+            <SlidersHorizontal className="w-3 h-3 text-slate-500" />
+            <span className="hidden sm:inline">Tools</span>
+            <ChevronDown className="w-3 h-3 text-slate-400" />
+          </button>
 
-        {/* Timer Widget */}
-        <div className="relative">
+          {toolsMenuOpen && (
+            <div className="absolute left-1/2 -translate-x-1/2 top-full mt-1.5 w-44 bg-white rounded-lg shadow-xl border border-slate-200 py-1.5 z-50 animate-in fade-in zoom-in-95 duration-100">
+              <button
+                type="button"
+                onClick={() => {
+                  onOpenTemplates();
+                  setToolsMenuOpen(false);
+                }}
+                className="w-full px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 flex items-center gap-2 cursor-pointer transition-colors"
+              >
+                <span>Templates</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onCycleGridMode();
+                }}
+                className="w-full px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 flex items-center justify-between cursor-pointer transition-colors"
+              >
+                <span>Grid Style</span>
+                <span className="font-mono text-[10px] text-slate-400 uppercase bg-slate-100 px-1 py-0.5 rounded">
+                  {gridMode}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onFitToContent();
+                  setToolsMenuOpen(false);
+                }}
+                className="w-full px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 flex items-center gap-2 cursor-pointer transition-colors"
+              >
+                <span>Fit Canvas</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onOpenActivityAndVotes();
+                  setToolsMenuOpen(false);
+                }}
+                className="w-full px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 flex items-center gap-2 cursor-pointer transition-colors"
+              >
+                <span>Activity & Votes</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Jam Timer Widget */}
+        <div className="relative shrink-0">
           <button
             type="button"
             onClick={() => setShowTimerPopover((prev) => !prev)}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono font-semibold transition-colors cursor-pointer ${
+            className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-mono font-semibold transition-colors cursor-pointer border ${
               timer.isRunning
-                ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                ? 'bg-rose-50 text-rose-700 border-rose-200'
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200/80'
             }`}
             title="Meeting & Jam Timer"
           >
@@ -741,7 +832,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           </button>
 
           {showTimerPopover && (
-            <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-lg shadow-xl border border-slate-200 p-2.5 z-50">
+            <div className="absolute right-0 sm:left-1/2 sm:-translate-x-1/2 top-full mt-2 w-48 bg-white rounded-lg shadow-xl border border-slate-200 p-2.5 z-50">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-semibold text-slate-800">Jam Timer</span>
                 <button
@@ -800,96 +891,110 @@ export const TopBar: React.FC<TopBarProps> = ({
             </div>
           )}
         </div>
-      </nav>
+      </div>
 
-      {/* Zone 3: Attachments, Google Drive Cloud Storage & Presence */}
-      <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+      {/* ========================================================= */}
+      {/* ZONE 3 (RIGHT): Attach, Storage, Collaboration & Export    */}
+      {/* ========================================================= */}
+      <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 flex-nowrap">
         {/* Attach File Button */}
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200/80 rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+          className="px-2 sm:px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200/80 rounded-md border border-slate-200/80 transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
           title="Attach screenshots, PDFs, Excel sheets, PowerPoint decks"
         >
-          <Paperclip className="w-3.5 h-3.5 text-indigo-600" />
+          <Paperclip className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
           <span className="hidden sm:inline">Attach</span>
         </button>
 
-        {/* Google Drive Status / GSI Sign-In Button */}
+        {/* Local PC Backup & Restore Buttons */}
+        <div className="flex items-center bg-slate-100 p-0.5 rounded-md border border-slate-200/80 shrink-0">
+          <button
+            type="button"
+            onClick={onExportWorkspaceBackup}
+            className="px-1.5 sm:px-2 py-0.5 text-xs font-medium text-slate-700 hover:bg-white hover:shadow-xs rounded transition-all flex items-center gap-1 cursor-pointer"
+            title="Download full backup of all canvas drawings, notes, files, and pages to your PC (.json)"
+          >
+            <Download className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+            <span className="hidden lg:inline text-[11px]">Backup</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => restoreFileInputRef.current?.click()}
+            className="px-1.5 sm:px-2 py-0.5 text-xs font-medium text-slate-700 hover:bg-white hover:shadow-xs rounded transition-all flex items-center gap-1 cursor-pointer"
+            title="Restore canvas from a saved backup file (.json)"
+          >
+            <HardDrive className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+            <span className="hidden lg:inline text-[11px]">Restore</span>
+          </button>
+        </div>
+
+        {/* Google Drive Status / Manage Button */}
         {isDriveSignedIn ? (
           <button
             type="button"
             onClick={onOpenDriveModal}
-            className="px-2.5 py-1.5 text-xs font-medium text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
-            title="Google Drive 5 TB Active · Backup Workspace to Google Drive (Click to manage)"
+            className="px-2 py-1 text-xs font-medium text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-md transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+            title="Google Drive 5 TB Active (Click to manage cloud backups)"
           >
             {isAutosaving ? (
-              <RefreshCw className="w-3.5 h-3.5 text-emerald-600 animate-spin" />
+              <RefreshCw className="w-3.5 h-3.5 text-emerald-600 animate-spin shrink-0" />
             ) : (
-              <Cloud className="w-3.5 h-3.5 text-emerald-600" />
+              <Cloud className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
             )}
-            <span className="hidden md:inline font-semibold">
-              {isAutosaving ? 'Saving to Drive...' : 'Drive Backup'}
+            <span className="hidden md:inline font-semibold text-[11px]">
+              {isAutosaving ? 'Saving...' : 'Drive'}
             </span>
-            <span className="font-mono text-[10px] text-emerald-600 hidden xl:inline">
+            <span className="font-mono text-[10px] text-emerald-600 hidden 2xl:inline">
               (5 TB)
             </span>
           </button>
         ) : (
           <button
             type="button"
-            onClick={onGoogleSignIn}
-            className="gsi-material-button h-8 px-2 text-xs"
-            title="Connect Google Drive to backup projects and pages"
+            onClick={onOpenDriveModal}
+            className="px-2 py-1 text-xs font-medium text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200/80 border border-slate-200/80 rounded-md transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+            title="Google Drive Cloud Backup (Click to configure or sign in)"
           >
-            <div className="gsi-material-button-state"></div>
-            <div className="gsi-material-button-content-wrapper">
-              <div className="gsi-material-button-icon !w-4 !h-4 !mr-1.5">
-                <svg
-                  version="1.1"
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 48 48"
-                  style={{ display: 'block' }}
-                >
-                  <path
-                    fill="#EA4335"
-                    d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
-                  ></path>
-                  <path
-                    fill="#4285F4"
-                    d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
-                  ></path>
-                  <path
-                    fill="#FBBC05"
-                    d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"
-                  ></path>
-                  <path
-                    fill="#34A853"
-                    d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
-                  ></path>
-                  <path fill="none" d="M0 0h48v48H0z"></path>
-                </svg>
-              </div>
-              <span className="gsi-material-button-contents text-xs">
-                Sign in with Google
-              </span>
-            </div>
+            <svg
+              className="w-3.5 h-3.5 shrink-0"
+              viewBox="0 0 48 48"
+            >
+              <path
+                fill="#EA4335"
+                d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
+              />
+              <path
+                fill="#4285F4"
+                d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
+              />
+              <path
+                fill="#FBBC05"
+                d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"
+              />
+              <path
+                fill="#34A853"
+                d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
+              />
+            </svg>
+            <span className="hidden sm:inline text-[11px]">Drive</span>
           </button>
         )}
 
         {/* Collaborators Avatar Stack */}
-        <div className="flex items-center -space-x-1.5 mr-0.5">
+        <div className="flex items-center -space-x-1.5 shrink-0">
           <button
             type="button"
             onClick={onOpenShareModal}
-            title={`You: ${currentUser.name} (${wsConnected ? 'Live Sync Active' : 'Offline/Saved Locally'}) — Click to customize profile`}
+            title={`You: ${currentUser.name} (${wsConnected ? 'Live Sync Active' : 'Offline / Saved to Disk'}) — Click to customize profile`}
             className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold text-white ring-2 ring-white shadow-xs transition-transform hover:scale-105 cursor-pointer"
             style={{ backgroundColor: currentUser.color }}
           >
             {currentUser.name.slice(0, 2).toUpperCase()}
           </button>
 
-          {peers.slice(0, 4).map((peer) => {
+          {peers.slice(0, 3).map((peer) => {
             const isFollowing = followingUserId === peer.id;
             return (
               <button
@@ -917,21 +1022,23 @@ export const TopBar: React.FC<TopBarProps> = ({
           })}
         </div>
 
+        {/* Export SVG Button */}
         <button
           type="button"
           onClick={onExportSvg}
-          className="px-3 py-1.5 text-xs font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+          className="px-2.5 sm:px-3 py-1 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-md transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer shadow-xs"
           title="Export vector SVG"
         >
-          <Download className="w-3.5 h-3.5" />
+          <Download className="w-3.5 h-3.5 shrink-0" />
           <span className="hidden sm:inline">Export</span>
         </button>
 
+        {/* Lock Workspace Button */}
         {onLockWorkspace && (
           <button
             type="button"
             onClick={onLockWorkspace}
-            className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+            className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-md transition-colors cursor-pointer shrink-0"
             title="Lock Workspace (Logout session)"
           >
             <Lock className="w-3.5 h-3.5" />

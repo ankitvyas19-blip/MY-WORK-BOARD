@@ -107,6 +107,8 @@ export function loadWorkspaceFromStorage(): WorkspaceState {
   }
 }
 
+let serverSaveTimeout: any = null;
+
 export function saveWorkspaceToStorage(workspace: WorkspaceState): void {
   if (typeof window === 'undefined') return;
   try {
@@ -114,4 +116,31 @@ export function saveWorkspaceToStorage(workspace: WorkspaceState): void {
   } catch (e) {
     console.warn('LocalStorage save failed (storage might be full):', e);
   }
+
+  // Dual-persistence: automatically sync full workspace state to server disk
+  if (serverSaveTimeout) clearTimeout(serverSaveTimeout);
+  serverSaveTimeout = setTimeout(() => {
+    fetch('/api/workspace', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(workspace),
+    }).catch((err) => {
+      console.warn('Failed to sync workspace to server disk:', err);
+    });
+  }, 400);
+}
+
+export async function fetchWorkspaceFromServer(): Promise<WorkspaceState | null> {
+  if (typeof window === 'undefined') return null;
+  try {
+    const res = await fetch('/api/workspace');
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data && Array.isArray(data.projects) && data.projects.length > 0) {
+      return data;
+    }
+  } catch (err) {
+    console.warn('Could not fetch workspace from server:', err);
+  }
+  return null;
 }

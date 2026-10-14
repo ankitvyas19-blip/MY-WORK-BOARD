@@ -1,5 +1,6 @@
 import express from 'express';
 import { createServer } from 'http';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
@@ -16,6 +17,13 @@ import { JAM_TEMPLATES } from './src/data/templates';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const DATA_DIR = path.join(__dirname, 'data');
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+const ROOMS_FILE = path.join(DATA_DIR, 'rooms.json');
+const WORKSPACE_FILE = path.join(DATA_DIR, 'workspace.json');
+
 interface InternalRoomState {
   roomId: string;
   title: string;
@@ -26,6 +34,54 @@ interface InternalRoomState {
 }
 
 const rooms = new Map<string, InternalRoomState>();
+
+function saveRoomsToDisk() {
+  try {
+    const exported: Record<string, any> = {};
+    for (const [id, room] of rooms.entries()) {
+      exported[id] = {
+        roomId: room.roomId,
+        title: room.title,
+        objects: Array.from(room.objects.values()),
+        timer: room.timer,
+        activities: room.activities,
+      };
+    }
+    fs.writeFileSync(ROOMS_FILE, JSON.stringify(exported, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Error saving rooms to disk:', err);
+  }
+}
+
+let saveRoomsTimeout: NodeJS.Timeout | null = null;
+function scheduleSaveRooms() {
+  if (saveRoomsTimeout) clearTimeout(saveRoomsTimeout);
+  saveRoomsTimeout = setTimeout(saveRoomsToDisk, 400);
+}
+
+function loadRoomsFromDisk() {
+  try {
+    if (fs.existsSync(ROOMS_FILE)) {
+      const raw = fs.readFileSync(ROOMS_FILE, 'utf-8');
+      const parsed = JSON.parse(raw);
+      for (const [id, data] of Object.entries(parsed)) {
+        const item = data as any;
+        const room: InternalRoomState = {
+          roomId: item.roomId || id,
+          title: item.title || 'Canvas Board',
+          objects: cloneObjects(item.objects || []),
+          users: new Map(),
+          timer: item.timer || { durationSeconds: 300, remainingSeconds: 300, isRunning: false, startedAt: null },
+          activities: item.activities || [],
+        };
+        rooms.set(id, room);
+      }
+      console.log(`Loaded ${rooms.size} saved rooms from disk.`);
+    }
+  } catch (err) {
+    console.error('Error loading rooms from disk:', err);
+  }
+}
 
 function cloneObjects(objs: BoardObject[]): Map<string, BoardObject> {
   const map = new Map<string, BoardObject>();
@@ -134,14 +190,40 @@ async function startServer() {
   const app = express();
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
-  app.use(express.json({ limit: '5mb' }));
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-  // Initialize default rooms
-  getOrCreateRoom('product-strategy');
-  getOrCreateRoom('sprint-retro');
-  getOrCreateRoom('prioritization');
+  // Load existing rooms from disk
+  loadRoomsFromDisk();
+
+  // Initialize default rooms if not yet saved on disk
+  if (!rooms.has('product-strategy')) getOrCreateRoom('product-strategy');
+  if (!rooms.has('sprint-retro')) getOrCreateRoom('sprint-retro');
+  if (!rooms.has('prioritization')) getOrCreateRoom('prioritization');
 
   // REST API endpoints
+  app.get('/api/workspace', (_req, res) => {
+    try {
+      if (fs.existsSync(WORKSPACE_FILE)) {
+        const data = fs.readFileSync(WORKSPACE_FILE, 'utf-8');
+        res.setHeader('Content-Type', 'application/json');
+        return res.send(data);
+      }
+      res.json(null);
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to read workspace' });
+    }
+  });
+
+  app.post('/api/workspace', (req, res) => {
+    try {
+      fs.writeFileSync(WORKSPACE_FILE, JSON.stringify(req.body, null, 2), 'utf-8');
+      res.json({ success: true, savedAt: Date.now() });
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to save workspace' });
+    }
+  });
+
   app.get('/api/rooms', (_req, res) => {
     const list = Array.from(rooms.values()).map((r) => ({
       roomId: r.roomId,
@@ -317,6 +399,7 @@ async function startServer() {
             if (!obj || !obj.id) break;
             // Idempotent check: store or overwrite cleanly
             room.objects.set(obj.id, { ...obj, updatedAt: Date.now() });
+            scheduleSaveRooms();
             const act = pushActivity(
               room,
               currentUser?.name || 'Collaborator',
@@ -343,6 +426,7 @@ async function startServer() {
               ? ({ ...existingObj, ...obj, updatedAt: Date.now() } as BoardObject)
               : ({ ...obj, updatedAt: Date.now() } as BoardObject);
             room.objects.set(obj.id, merged);
+            scheduleSaveRooms();
             broadcastToRoom(
               conn.roomId,
               {
@@ -367,6 +451,7 @@ async function startServer() {
               room.objects.set(item.id, merged);
               updated.push(merged);
             }
+            scheduleSaveRooms();
             broadcastToRoom(
               conn.roomId,
               {
@@ -388,6 +473,7 @@ async function startServer() {
             for (const id of ids) {
               room.objects.delete(id);
             }
+            scheduleSaveRooms();
             const act = pushActivity(
               room,
               currentUser?.name || 'Collaborator',
@@ -409,6 +495,7 @@ async function startServer() {
           case 'board:title': {
             if (typeof data.title === 'string' && data.title.trim()) {
               room.title = data.title.trim();
+              scheduleSaveRooms();
               const act = pushActivity(
                 room,
                 currentUser?.name || 'Collaborator',
@@ -428,6 +515,7 @@ async function startServer() {
             const tpl = JAM_TEMPLATES.find((t) => t.id === data.templateId);
             if (tpl) {
               room.objects = cloneObjects(tpl.objects);
+              scheduleSaveRooms();
               const act = pushActivity(
                 room,
                 currentUser?.name || 'Collaborator',
@@ -447,6 +535,7 @@ async function startServer() {
           case 'board:replace_all': {
             if (Array.isArray(data.objects)) {
               room.objects = cloneObjects(data.objects);
+              scheduleSaveRooms();
               const fullState = serializeRoom(room);
               broadcastToRoom(
                 conn.roomId,
@@ -462,6 +551,7 @@ async function startServer() {
 
           case 'board:clear': {
             room.objects.clear();
+            scheduleSaveRooms();
             const act = pushActivity(
               room,
               currentUser?.name || 'Collaborator',
@@ -563,7 +653,7 @@ async function startServer() {
     });
   }
 
-  httpServer.listen(PORT, '0.0.0.0', () => {
+  httpServer.listen(PORT, () => {
     console.log(`CanvasJam Server & WebSocket listening on http://localhost:${PORT}`);
   });
 }
