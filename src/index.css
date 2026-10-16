@@ -7,10 +7,15 @@
     --font-mono: 'JetBrains Mono', monospace;
   }
 
-  body {
+  html, body, #root {
     font-family: var(--font-sans);
     user-select: none;
+    -webkit-user-select: none;
     overflow: hidden;
+    touch-action: none;
+    overscroll-behavior: none;
+    height: 100%;
+    width: 100%;
   }
 }
 

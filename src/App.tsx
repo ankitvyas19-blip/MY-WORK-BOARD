@@ -496,24 +496,6 @@ export default function App() {
     activeToolRef.current = activeTool;
   }, [activeTool]);
 
-  // Touch Gesture State Machine for Mobile Pinch-to-Zoom & Pan
-  const touchStateRef = useRef<{
-    mode: 'none' | 'pinch' | 'pan';
-    initialDistance: number;
-    initialZoom: number;
-    initialViewport: { x: number; y: number; zoom: number };
-    initialCenter: Point;
-    lastCenter: Point;
-    isCanvasTarget: boolean;
-  }>({
-    mode: 'none',
-    initialDistance: 0,
-    initialZoom: 1,
-    initialViewport: { x: 0, y: 0, zoom: 1 },
-    initialCenter: { x: 0, y: 0 },
-    lastCenter: { x: 0, y: 0 },
-    isCanvasTarget: false,
-  });
 
   // Pointer Interaction State Machine
   const interactionRef = useRef<{
@@ -1463,6 +1445,20 @@ export default function App() {
     const canvasEl = canvasRef.current;
     if (!canvasEl) return;
 
+    // Prevent default iOS Safari pinch-to-zoom on the webpage
+    const preventSafariGesture = (e: Event) => {
+      e.preventDefault();
+    };
+    document.addEventListener('gesturestart', preventSafariGesture, { passive: false });
+    document.addEventListener('gesturechange', preventSafariGesture, { passive: false });
+    document.addEventListener('gestureend', preventSafariGesture, { passive: false });
+
+    let lastPinchDist = 0;
+    let lastPinchCenter = { x: 0, y: 0 };
+    let isPinching = false;
+    let lastSingleTouch = { x: 0, y: 0 };
+    let isSinglePanning = false;
+
     const onTouchStart = (e: TouchEvent) => {
       setFollowingUserId(null);
 
@@ -1470,21 +1466,13 @@ export default function App() {
         if (e.cancelable) e.preventDefault();
         const t1 = e.touches[0];
         const t2 = e.touches[1];
-        const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
-        const center = {
+        lastPinchDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+        lastPinchCenter = {
           x: (t1.clientX + t2.clientX) / 2,
           y: (t1.clientY + t2.clientY) / 2,
         };
-
-        touchStateRef.current = {
-          mode: 'pinch',
-          initialDistance: dist,
-          initialZoom: viewportRef.current.zoom,
-          initialViewport: { ...viewportRef.current },
-          initialCenter: center,
-          lastCenter: center,
-          isCanvasTarget: true,
-        };
+        isPinching = true;
+        isSinglePanning = false;
 
         // Cancel any active drag/marquee interaction
         interactionRef.current = {
@@ -1496,18 +1484,21 @@ export default function App() {
         };
         setMarqueeBox(null);
       } else if (e.touches.length === 1) {
+        isPinching = false;
+        lastPinchDist = 0;
         const t = e.touches[0];
+        lastSingleTouch = { x: t.clientX, y: t.clientY };
         const isCanvas =
           e.target === canvasEl || (e.target as HTMLElement).id === 'canvas';
-        touchStateRef.current = {
-          mode: 'pan',
-          initialDistance: 0,
-          initialZoom: viewportRef.current.zoom,
-          initialViewport: { ...viewportRef.current },
-          initialCenter: { x: t.clientX, y: t.clientY },
-          lastCenter: { x: t.clientX, y: t.clientY },
-          isCanvasTarget: isCanvas,
-        };
+        if (
+          activeToolRef.current === 'hand' ||
+          isSpacePressedRef.current ||
+          (activeToolRef.current === 'select' && isCanvas)
+        ) {
+          isSinglePanning = true;
+        } else {
+          isSinglePanning = false;
+        }
       }
     };
 
@@ -1522,104 +1513,92 @@ export default function App() {
           y: (t1.clientY + t2.clientY) / 2,
         };
 
-        const state = touchStateRef.current;
-        if (state.mode !== 'pinch' || state.initialDistance === 0) {
-          touchStateRef.current = {
-            mode: 'pinch',
-            initialDistance: currentDist,
-            initialZoom: viewportRef.current.zoom,
-            initialViewport: { ...viewportRef.current },
-            initialCenter: currentCenter,
-            lastCenter: currentCenter,
-            isCanvasTarget: true,
-          };
+        if (!isPinching || lastPinchDist <= 0) {
+          isPinching = true;
+          isSinglePanning = false;
+          lastPinchDist = currentDist;
+          lastPinchCenter = currentCenter;
           return;
         }
 
-        const rect = canvasEl.getBoundingClientRect();
-        // Calculate smooth scale factor based on two-finger distance
-        const scale = currentDist / Math.max(10, state.initialDistance);
-        const nextZoom = Math.min(4, Math.max(0.15, state.initialZoom * scale));
+        if (lastPinchDist > 0 && currentDist > 0) {
+          const scale = currentDist / lastPinchDist;
+          const dx = currentCenter.x - lastPinchCenter.x;
+          const dy = currentCenter.y - lastPinchCenter.y;
 
-        // Focal point relative to canvas bounds
-        const focalX = currentCenter.x - rect.left;
-        const focalY = currentCenter.y - rect.top;
+          const rect = canvasEl.getBoundingClientRect();
+          const focalX = currentCenter.x - rect.left;
+          const focalY = currentCenter.y - rect.top;
 
-        const focalX0 = state.initialCenter.x - rect.left;
-        const focalY0 = state.initialCenter.y - rect.top;
+          const prevVp = viewportRef.current;
+          const nextZoom = Math.min(4, Math.max(0.15, prevVp.zoom * scale));
 
-        // World coordinates under initial focal touch center
-        const worldUnderFocalX =
-          (focalX0 - state.initialViewport.x) / state.initialViewport.zoom;
-        const worldUnderFocalY =
-          (focalY0 - state.initialViewport.y) / state.initialViewport.zoom;
+          // Focal zoom around center of two fingers + translation
+          const nextX = focalX - ((focalX - prevVp.x) / prevVp.zoom) * nextZoom + dx;
+          const nextY = focalY - ((focalY - prevVp.y) / prevVp.zoom) * nextZoom + dy;
 
-        const nextX = focalX - worldUnderFocalX * nextZoom;
-        const nextY = focalY - worldUnderFocalY * nextZoom;
+          const nextVp = { x: nextX, y: nextY, zoom: nextZoom };
+          setViewport(nextVp);
+          viewportRef.current = nextVp;
 
-        const nextVp = { x: nextX, y: nextY, zoom: nextZoom };
-        setViewport(nextVp);
-        viewportRef.current = nextVp;
-      } else if (e.touches.length === 1 && touchStateRef.current.mode === 'pan') {
-        const state = touchStateRef.current;
-        if (
-          activeToolRef.current === 'hand' ||
-          isSpacePressedRef.current ||
-          state.isCanvasTarget
-        ) {
-          if (e.cancelable) e.preventDefault();
-          const t = e.touches[0];
-          const dx = t.clientX - state.lastCenter.x;
-          const dy = t.clientY - state.lastCenter.y;
-          state.lastCenter = { x: t.clientX, y: t.clientY };
-          setViewport((prev) => {
-            const nextVp = {
-              ...prev,
-              x: prev.x + dx,
-              y: prev.y + dy,
-            };
-            viewportRef.current = nextVp;
-            return nextVp;
-          });
+          lastPinchDist = currentDist;
+          lastPinchCenter = currentCenter;
         }
+      } else if (e.touches.length === 1 && isSinglePanning) {
+        if (e.cancelable) e.preventDefault();
+        const t = e.touches[0];
+        const dx = t.clientX - lastSingleTouch.x;
+        const dy = t.clientY - lastSingleTouch.y;
+        lastSingleTouch = { x: t.clientX, y: t.clientY };
+        setViewport((prev) => {
+          const nextVp = {
+            ...prev,
+            x: prev.x + dx,
+            y: prev.y + dy,
+          };
+          viewportRef.current = nextVp;
+          return nextVp;
+        });
       }
     };
 
     const onTouchEnd = (e: TouchEvent) => {
-      if (e.touches.length === 1) {
+      if (e.touches.length === 2) {
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        lastPinchDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+        lastPinchCenter = {
+          x: (t1.clientX + t2.clientX) / 2,
+          y: (t1.clientY + t2.clientY) / 2,
+        };
+        isPinching = true;
+        isSinglePanning = false;
+      } else if (e.touches.length === 1) {
+        isPinching = false;
+        lastPinchDist = 0;
         const t = e.touches[0];
-        touchStateRef.current = {
-          mode: 'pan',
-          initialDistance: 0,
-          initialZoom: viewportRef.current.zoom,
-          initialViewport: { ...viewportRef.current },
-          initialCenter: { x: t.clientX, y: t.clientY },
-          lastCenter: { x: t.clientX, y: t.clientY },
-          isCanvasTarget: touchStateRef.current.isCanvasTarget,
-        };
-      } else if (e.touches.length === 0) {
-        touchStateRef.current = {
-          mode: 'none',
-          initialDistance: 0,
-          initialZoom: 1,
-          initialViewport: { ...viewportRef.current },
-          initialCenter: { x: 0, y: 0 },
-          lastCenter: { x: 0, y: 0 },
-          isCanvasTarget: false,
-        };
+        lastSingleTouch = { x: t.clientX, y: t.clientY };
+        isSinglePanning = false;
+      } else {
+        isPinching = false;
+        lastPinchDist = 0;
+        isSinglePanning = false;
       }
     };
 
     canvasEl.addEventListener('touchstart', onTouchStart, { passive: false });
-    canvasEl.addEventListener('touchmove', onTouchMove, { passive: false });
-    canvasEl.addEventListener('touchend', onTouchEnd, { passive: false });
-    canvasEl.addEventListener('touchcancel', onTouchEnd, { passive: false });
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
+    window.addEventListener('touchend', onTouchEnd, { passive: false });
+    window.addEventListener('touchcancel', onTouchEnd, { passive: false });
 
     return () => {
+      document.removeEventListener('gesturestart', preventSafariGesture);
+      document.removeEventListener('gesturechange', preventSafariGesture);
+      document.removeEventListener('gestureend', preventSafariGesture);
       canvasEl.removeEventListener('touchstart', onTouchStart);
-      canvasEl.removeEventListener('touchmove', onTouchMove);
-      canvasEl.removeEventListener('touchend', onTouchEnd);
-      canvasEl.removeEventListener('touchcancel', onTouchEnd);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', onTouchEnd);
+      window.removeEventListener('touchcancel', onTouchEnd);
     };
   }, []);
 

@@ -32,7 +32,7 @@ export const Minimap: React.FC<MinimapProps> = ({
   onResetZoom,
   onFitToContent,
 }) => {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
 
   // Compute world bounds for minimap projection
   const WORLD_MIN_X = -400;
@@ -65,7 +65,7 @@ export const Minimap: React.FC<MinimapProps> = ({
   };
 
   return (
-    <div className="fixed bottom-5 right-5 z-30 flex flex-col items-end gap-2 select-none">
+    <div className="fixed bottom-20 right-3 sm:bottom-5 sm:right-5 z-30 flex flex-col items-end gap-2 select-none">
       {/* Interactive Radar Minimap */}
       {!collapsed && (
         <div className="bg-white/95 backdrop-blur-md border border-slate-200/90 rounded-xl shadow-md p-2 overflow-hidden">
@@ -139,56 +139,56 @@ export const Minimap: React.FC<MinimapProps> = ({
       )}
 
       {/* Zoom & Viewport HUD Bar */}
-      <div className="bg-white/95 backdrop-blur-md border border-slate-200/90 rounded-xl shadow-md px-2 py-1 flex items-center gap-1">
+      <div className="bg-white/95 backdrop-blur-md border border-slate-200/90 rounded-xl shadow-lg px-2 sm:px-2 py-1.5 sm:py-1 flex items-center gap-1">
         <button
           type="button"
           onClick={() => setCollapsed((prev) => !prev)}
           title={collapsed ? 'Show Minimap Radar' : 'Hide Minimap Radar'}
-          className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+          className={`p-2 sm:p-1.5 rounded-lg transition-colors cursor-pointer touch-manipulation ${
             !collapsed
               ? 'text-indigo-600 bg-indigo-50'
               : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
-          <MapIcon className="w-3.5 h-3.5" />
+          <MapIcon className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
         </button>
 
-        <div className="w-px h-4 bg-slate-200 mx-0.5" />
+        <div className="w-px h-5 sm:h-4 bg-slate-200 mx-0.5" />
 
         <button
           type="button"
-          onClick={() => onZoomStep(-0.15)}
+          onClick={() => onZoomStep(-0.2)}
           title="Zoom Out (-)"
-          className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+          className="p-2 sm:p-1.5 text-slate-700 hover:text-slate-900 active:bg-slate-200 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer touch-manipulation active:scale-95"
         >
-          <ZoomOut className="w-3.5 h-3.5" />
+          <ZoomOut className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
         </button>
 
         <button
           type="button"
           onClick={onResetZoom}
           title="Reset Zoom to 100% (Cmd/Ctrl + 0)"
-          className="px-2 py-1 text-xs font-mono tabular-nums font-semibold text-slate-700 hover:bg-slate-100 rounded-md transition-colors whitespace-nowrap cursor-pointer"
+          className="px-2.5 py-1 text-xs font-mono tabular-nums font-bold text-slate-800 hover:bg-slate-100 active:bg-slate-200 rounded-md transition-colors whitespace-nowrap cursor-pointer touch-manipulation"
         >
           {Math.round(viewport.zoom * 100)}%
         </button>
 
         <button
           type="button"
-          onClick={() => onZoomStep(0.15)}
+          onClick={() => onZoomStep(0.2)}
           title="Zoom In (+)"
-          className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+          className="p-2 sm:p-1.5 text-slate-700 hover:text-slate-900 active:bg-slate-200 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer touch-manipulation active:scale-95"
         >
-          <ZoomIn className="w-3.5 h-3.5" />
+          <ZoomIn className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
         </button>
 
         <button
           type="button"
           onClick={onFitToContent}
           title="Fit All Objects in Viewport"
-          className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+          className="p-2 sm:p-1.5 text-slate-700 hover:text-slate-900 active:bg-slate-200 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer touch-manipulation active:scale-95"
         >
-          <Maximize2 className="w-3.5 h-3.5" />
+          <Maximize2 className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
         </button>
       </div>
     </div>
