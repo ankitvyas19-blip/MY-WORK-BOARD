@@ -324,15 +324,22 @@ export default function App() {
     fetchWorkspaceFromServer().then((serverWs) => {
       if (serverWs && Array.isArray(serverWs.projects) && serverWs.projects.length > 0) {
         setWorkspace((localWs) => {
-          const localCount = localWs.projects.reduce(
-            (acc, p) => acc + p.pages.reduce((a, pg) => a + (pg.objects?.length || 0), 0),
-            0
-          );
-          const serverCount = serverWs.projects.reduce(
-            (acc, p) => acc + p.pages.reduce((a, pg) => a + (pg.objects?.length || 0), 0),
-            0
-          );
-          if (serverCount >= localCount && serverCount > 0) {
+          const getWorkspaceLatestTimestamp = (ws: WorkspaceState) => {
+            let maxTs = 0;
+            for (const p of ws.projects) {
+              if (p.updatedAt && p.updatedAt > maxTs) maxTs = p.updatedAt;
+              for (const pg of p.pages) {
+                if (pg.updatedAt && pg.updatedAt > maxTs) maxTs = pg.updatedAt;
+              }
+            }
+            return maxTs;
+          };
+
+          const localTs = getWorkspaceLatestTimestamp(localWs);
+          const serverTs = getWorkspaceLatestTimestamp(serverWs);
+
+          // ONLY apply server workspace if server is strictly newer than local
+          if (serverTs > localTs && serverTs > 0) {
             saveWorkspaceToStorage(serverWs);
             const activeProj =
               serverWs.projects.find((p) => p.id === serverWs.activeProjectId) ||
@@ -340,21 +347,62 @@ export default function App() {
             const activePg =
               activeProj.pages.find((pg) => pg.id === activeProj.activePageId) ||
               activeProj.pages[0];
-            if (activePg && activePg.objects && activePg.objects.length > 0) {
-              setObjects(activePg.objects);
+            if (activePg) {
+              setActiveProjectId(activeProj.id);
+              setActivePageId(activePg.id);
+              setBoardTitle(activePg.name || 'Page 1');
+              if (activePg.objects) {
+                setObjects(activePg.objects);
+                objectsRef.current = activePg.objects;
+              }
+              if (activePg.viewport) {
+                setViewport(activePg.viewport);
+                viewportRef.current = activePg.viewport;
+              }
             }
             return serverWs;
+          } else {
+            // Local is newer or equal: persist local changes to server so server disk is kept up to date
+            saveWorkspaceToStorage(localWs);
+            return localWs;
           }
-          return localWs;
         });
       }
     });
   }, []);
 
   const handleExportWorkspaceBackup = useCallback(() => {
+    const curObjects = objectsRef.current;
+    const curVp = viewportRef.current;
+    const updatedProjects = workspace.projects.map((proj) => {
+      if (proj.id !== activeProjectId) return proj;
+      const updatedPages = proj.pages.map((pg) => {
+        if (pg.id !== activePageId) return pg;
+        return {
+          ...pg,
+          name: boardTitle,
+          objects: curObjects,
+          viewport: curVp,
+          updatedAt: Date.now(),
+        };
+      });
+      return {
+        ...proj,
+        pages: updatedPages,
+        updatedAt: Date.now(),
+      };
+    });
+    const currentWorkspaceSnapshot: WorkspaceState = {
+      ...workspace,
+      activeProjectId,
+      projects: updatedProjects,
+    };
+
+    saveWorkspaceToStorage(currentWorkspaceSnapshot);
+
     const dataStr =
       'data:text/json;charset=utf-8,' +
-      encodeURIComponent(JSON.stringify(workspace, null, 2));
+      encodeURIComponent(JSON.stringify(currentWorkspaceSnapshot, null, 2));
     const dlAnchorElem = document.createElement('a');
     dlAnchorElem.setAttribute('href', dataStr);
     dlAnchorElem.setAttribute(
@@ -362,7 +410,7 @@ export default function App() {
       `canvasjam-backup-${new Date().toISOString().slice(0, 10)}.json`
     );
     dlAnchorElem.click();
-  }, [workspace]);
+  }, [activePageId, activeProjectId, boardTitle, workspace]);
 
   const handleImportWorkspaceBackup = useCallback((file: File) => {
     const reader = new FileReader();
@@ -381,14 +429,25 @@ export default function App() {
             imported.projects.find((p: any) => p.id === imported.activeProjectId) ||
             imported.projects[0];
           const activePg =
-            activeProj.pages.find((pg) => pg.id === activeProj.activePageId) ||
+            activeProj.pages.find((pg: any) => pg.id === activeProj.activePageId) ||
             activeProj.pages[0];
-          if (activePg && activePg.objects) {
-            setObjects(activePg.objects);
-            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-              wsRef.current.send(
-                JSON.stringify({ type: 'board:replace_all', objects: activePg.objects })
-              );
+          if (activePg) {
+            setActiveProjectId(activeProj.id);
+            setActivePageId(activePg.id);
+            setRoomId(activePg.id);
+            setBoardTitle(activePg.name || 'Page 1');
+            if (activePg.objects) {
+              setObjects(activePg.objects);
+              objectsRef.current = activePg.objects;
+              if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                wsRef.current.send(
+                  JSON.stringify({ type: 'board:replace_all', objects: activePg.objects })
+                );
+              }
+            }
+            if (activePg.viewport) {
+              setViewport(activePg.viewport);
+              viewportRef.current = activePg.viewport;
             }
           }
           alert('Backup restored successfully! All canvas drawings, files, and notes are loaded.');
@@ -546,6 +605,16 @@ export default function App() {
     }
     return map;
   }, [objects]);
+
+  const objectsMapRef = useRef(objectsMap);
+  useEffect(() => {
+    objectsMapRef.current = objectsMap;
+  }, [objectsMap]);
+
+  const selectedIdsRef = useRef(selectedIds);
+  useEffect(() => {
+    selectedIdsRef.current = selectedIds;
+  }, [selectedIds]);
 
   const selectedObjects = useMemo(
     () => objects.filter((o) => selectedIds.includes(o.id)),
@@ -1440,6 +1509,110 @@ export default function App() {
     requestDeleteObjects,
   ]);
 
+  // High-performance object drag & resize functions shared across mouse and mobile touch
+  const startObjectDrag = useCallback(
+    (obj: BoardObject, screenPt: Point, isShift: boolean = false) => {
+      if (activeToolRef.current === 'eraser') {
+        requestDeleteObjects([obj.id]);
+        return;
+      }
+      if (!canvasRef.current) return;
+      const rect = canvasRef.current.getBoundingClientRect();
+      const worldPt = screenToWorld(screenPt.x, screenPt.y, viewportRef.current, rect);
+
+      let nextSelected = selectedIdsRef.current;
+      if (isShift) {
+        nextSelected = nextSelected.includes(obj.id)
+          ? nextSelected.filter((id) => id !== obj.id)
+          : [...nextSelected, obj.id];
+        setSelectedIds(nextSelected);
+      } else if (!nextSelected.includes(obj.id)) {
+        nextSelected = [obj.id];
+        setSelectedIds(nextSelected);
+      }
+
+      if (obj.locked) return;
+
+      // If dragging a Section Frame, also include all unlocked objects inside its bounds!
+      const curObjects = objectsRef.current;
+      const curMap = objectsMapRef.current;
+      const dragIds = new Set(nextSelected);
+      for (const id of nextSelected) {
+        const item = curMap.get(id);
+        if (item && item.type === 'section') {
+          const secBounds = getObjectBounds(item);
+          for (const candidate of curObjects) {
+            if (candidate.id !== item.id && !candidate.locked && candidate.type !== 'section') {
+              const cb = getObjectBounds(candidate);
+              if (boxesIntersect(secBounds, cb)) {
+                dragIds.add(candidate.id);
+              }
+            }
+          }
+        }
+      }
+
+      const snapshots = new Map<string, BoardObject>();
+      for (const id of dragIds) {
+        const target = curMap.get(id);
+        if (target && !target.locked) {
+          snapshots.set(id, JSON.parse(JSON.stringify(target)));
+        }
+      }
+
+      pushUndoSnapshot(curObjects);
+      interactionRef.current = {
+        mode: 'dragging_objects',
+        startScreen: screenPt,
+        startWorld: worldPt,
+        startViewport: viewportRef.current,
+        dragSnapshots: snapshots,
+      };
+    },
+    [pushUndoSnapshot, requestDeleteObjects]
+  );
+
+  const startObjectResize = useCallback(
+    (obj: BoardObject, screenPt: Point) => {
+      if (obj.locked || !canvasRef.current) return;
+      const rect = canvasRef.current.getBoundingClientRect();
+      const worldPt = screenToWorld(screenPt.x, screenPt.y, viewportRef.current, rect);
+      const bounds = getObjectBounds(obj);
+
+      pushUndoSnapshot(objectsRef.current);
+      interactionRef.current = {
+        mode: 'resizing_object',
+        startScreen: screenPt,
+        startWorld: worldPt,
+        startViewport: viewportRef.current,
+        dragSnapshots: new Map([[obj.id, JSON.parse(JSON.stringify(obj))]]),
+        resizeTargetId: obj.id,
+        resizeStartBounds: bounds,
+      };
+    },
+    [pushUndoSnapshot]
+  );
+
+  const startObjectDragRef = useRef(startObjectDrag);
+  useEffect(() => {
+    startObjectDragRef.current = startObjectDrag;
+  }, [startObjectDrag]);
+
+  const startObjectResizeRef = useRef(startObjectResize);
+  useEffect(() => {
+    startObjectResizeRef.current = startObjectResize;
+  }, [startObjectResize]);
+
+  const batchUpdateBoardObjectsRef = useRef(batchUpdateBoardObjects);
+  useEffect(() => {
+    batchUpdateBoardObjectsRef.current = batchUpdateBoardObjects;
+  }, [batchUpdateBoardObjects]);
+
+  const updateBoardObjectRef = useRef(updateBoardObject);
+  useEffect(() => {
+    updateBoardObjectRef.current = updateBoardObject;
+  }, [updateBoardObject]);
+
   // Native non-passive touch listeners on canvas for smooth mobile pinch-to-zoom & pan
   useEffect(() => {
     const canvasEl = canvasRef.current;
@@ -1488,8 +1661,45 @@ export default function App() {
         lastPinchDist = 0;
         const t = e.touches[0];
         lastSingleTouch = { x: t.clientX, y: t.clientY };
+
+        const target = e.target as HTMLElement | null;
+        const isInput = target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable;
+        const isButton = target?.closest('button') !== null || target?.closest('a') !== null;
+        if (isInput || isButton) {
+          return;
+        }
+
+        const resizeEl = target?.closest('[data-resize-id]') as HTMLElement | null;
+        if (resizeEl) {
+          const resizeId = resizeEl.getAttribute('data-resize-id');
+          const obj = resizeId ? objectsMapRef.current.get(resizeId) : null;
+          if (obj) {
+            if (e.cancelable) e.preventDefault();
+            isSinglePanning = false;
+            startObjectResizeRef.current(obj, { x: t.clientX, y: t.clientY });
+            return;
+          }
+        }
+
+        const objectEl = target?.closest('[data-object-id]') as HTMLElement | null;
+        if (objectEl && activeToolRef.current !== 'hand' && !isSpacePressedRef.current) {
+          const objId = objectEl.getAttribute('data-object-id');
+          const obj = objId ? objectsMapRef.current.get(objId) : null;
+          if (obj) {
+            if (activeToolRef.current === 'eraser') {
+              if (e.cancelable) e.preventDefault();
+              requestDeleteObjects([obj.id]);
+              return;
+            }
+            if (e.cancelable) e.preventDefault();
+            isSinglePanning = false;
+            startObjectDragRef.current(obj, { x: t.clientX, y: t.clientY }, false);
+            return;
+          }
+        }
+
         const isCanvas =
-          e.target === canvasEl || (e.target as HTMLElement).id === 'canvas';
+          e.target === canvasEl || (e.target as HTMLElement).id === 'canvas' || !objectEl;
         if (
           activeToolRef.current === 'hand' ||
           isSpacePressedRef.current ||
@@ -1544,21 +1754,86 @@ export default function App() {
           lastPinchDist = currentDist;
           lastPinchCenter = currentCenter;
         }
-      } else if (e.touches.length === 1 && isSinglePanning) {
-        if (e.cancelable) e.preventDefault();
-        const t = e.touches[0];
-        const dx = t.clientX - lastSingleTouch.x;
-        const dy = t.clientY - lastSingleTouch.y;
-        lastSingleTouch = { x: t.clientX, y: t.clientY };
-        setViewport((prev) => {
-          const nextVp = {
-            ...prev,
-            x: prev.x + dx,
-            y: prev.y + dy,
-          };
-          viewportRef.current = nextVp;
-          return nextVp;
-        });
+      } else if (e.touches.length === 1) {
+        const state = interactionRef.current;
+        if (state.mode === 'dragging_objects') {
+          if (e.cancelable) e.preventDefault();
+          const t = e.touches[0];
+          const rect = canvasEl.getBoundingClientRect();
+          const worldPt = screenToWorld(t.clientX, t.clientY, viewportRef.current, rect);
+          const dx = Math.round(worldPt.x - state.startWorld.x);
+          const dy = Math.round(worldPt.y - state.startWorld.y);
+          if (dx === 0 && dy === 0) return;
+
+          const updatedBatch: BoardObject[] = [];
+          for (const [, orig] of state.dragSnapshots.entries()) {
+            const copy: BoardObject = JSON.parse(JSON.stringify(orig));
+            if ('x' in copy && 'y' in copy) {
+              copy.x = orig.type !== 'path' && orig.type !== 'connector' ? (orig as StickyNoteObject).x + dx : 0;
+              copy.y = orig.type !== 'path' && orig.type !== 'connector' ? (orig as StickyNoteObject).y + dy : 0;
+            } else if (copy.type === 'path') {
+              copy.points = copy.points.map((p) => ({ x: p.x + dx, y: p.y + dy }));
+            } else if (copy.type === 'connector') {
+              copy.fromPoint = {
+                x: copy.fromPoint.x + dx,
+                y: copy.fromPoint.y + dy,
+              };
+              copy.toPoint = {
+                x: copy.toPoint.x + dx,
+                y: copy.toPoint.y + dy,
+              };
+            }
+            updatedBatch.push(copy);
+          }
+          batchUpdateBoardObjectsRef.current(updatedBatch, true);
+          return;
+        }
+
+        if (state.mode === 'resizing_object' && state.resizeTargetId && state.resizeStartBounds) {
+          if (e.cancelable) e.preventDefault();
+          const t = e.touches[0];
+          const rect = canvasEl.getBoundingClientRect();
+          const worldPt = screenToWorld(t.clientX, t.clientY, viewportRef.current, rect);
+          const orig = state.dragSnapshots.get(state.resizeTargetId);
+          if (orig) {
+            const dx = Math.round(worldPt.x - state.startWorld.x);
+            const dy = Math.round(worldPt.y - state.startWorld.y);
+            if (
+              orig.type === 'sticky' ||
+              orig.type === 'shape' ||
+              orig.type === 'section' ||
+              orig.type === 'text' ||
+              orig.type === 'attachment'
+            ) {
+              const minW = orig.type === 'section' ? 200 : 120;
+              const minH = orig.type === 'text' ? 38 : 80;
+              const updated: BoardObject = {
+                ...orig,
+                width: Math.max(minW, state.resizeStartBounds.width + dx),
+                height: Math.max(minH, state.resizeStartBounds.height + dy),
+              };
+              updateBoardObjectRef.current(updated, true);
+            }
+          }
+          return;
+        }
+
+        if (isSinglePanning) {
+          if (e.cancelable) e.preventDefault();
+          const t = e.touches[0];
+          const dx = t.clientX - lastSingleTouch.x;
+          const dy = t.clientY - lastSingleTouch.y;
+          lastSingleTouch = { x: t.clientX, y: t.clientY };
+          setViewport((prev) => {
+            const nextVp = {
+              ...prev,
+              x: prev.x + dx,
+              y: prev.y + dy,
+            };
+            viewportRef.current = nextVp;
+            return nextVp;
+          });
+        }
       }
     };
 
@@ -1583,6 +1858,18 @@ export default function App() {
         isPinching = false;
         lastPinchDist = 0;
         isSinglePanning = false;
+        if (
+          interactionRef.current.mode === 'dragging_objects' ||
+          interactionRef.current.mode === 'resizing_object'
+        ) {
+          interactionRef.current = {
+            mode: 'none',
+            startScreen: { x: 0, y: 0 },
+            startWorld: { x: 0, y: 0 },
+            startViewport: viewportRef.current,
+            dragSnapshots: new Map(),
+          };
+        }
       }
     };
 
@@ -1919,76 +2206,34 @@ export default function App() {
       return;
     }
 
-    if (!canvasRef.current) return;
-    const rect = canvasRef.current.getBoundingClientRect();
-    const worldPt = screenToWorld(e.clientX, e.clientY, viewport, rect);
+    startObjectDrag(obj, { x: e.clientX, y: e.clientY }, e.shiftKey);
+  };
 
-    let nextSelected = selectedIds;
-    if (e.shiftKey) {
-      nextSelected = selectedIds.includes(obj.id)
-        ? selectedIds.filter((id) => id !== obj.id)
-        : [...selectedIds, obj.id];
-      setSelectedIds(nextSelected);
-    } else if (!selectedIds.includes(obj.id)) {
-      nextSelected = [obj.id];
-      setSelectedIds(nextSelected);
+  // Object Touch Down (Touch Dragging on Mobile Phone)
+  const handleObjectTouchStart = (e: React.TouchEvent, obj: BoardObject) => {
+    if (e.touches.length !== 1) return;
+    if (activeToolRef.current === 'hand' || isSpacePressedRef.current) return;
+    const target = e.target as HTMLElement;
+    if (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.closest('button') || target?.closest('a')) {
+      return;
     }
-
-    if (obj.locked) return;
-
-    // If dragging a Section Frame, also include all unlocked objects inside its bounds!
-    const dragIds = new Set(nextSelected);
-    for (const id of nextSelected) {
-      const item = objectsMap.get(id);
-      if (item && item.type === 'section') {
-        const secBounds = getObjectBounds(item);
-        for (const candidate of objects) {
-          if (candidate.id !== item.id && !candidate.locked && candidate.type !== 'section') {
-            const cb = getObjectBounds(candidate);
-            if (boxesIntersect(secBounds, cb)) {
-              dragIds.add(candidate.id);
-            }
-          }
-        }
-      }
-    }
-
-    const snapshots = new Map<string, BoardObject>();
-    for (const id of dragIds) {
-      const target = objectsMap.get(id);
-      if (target && !target.locked) {
-        snapshots.set(id, JSON.parse(JSON.stringify(target)));
-      }
-    }
-
-    pushUndoSnapshot(objects);
-    interactionRef.current = {
-      mode: 'dragging_objects',
-      startScreen: { x: e.clientX, y: e.clientY },
-      startWorld: worldPt,
-      startViewport: viewport,
-      dragSnapshots: snapshots,
-    };
+    e.stopPropagation();
+    const t = e.touches[0];
+    startObjectDrag(obj, { x: t.clientX, y: t.clientY }, false);
   };
 
   // Start Object Corner Resize
   const handleStartResize = (e: React.MouseEvent, obj: BoardObject) => {
     e.stopPropagation();
-    if (obj.locked || !canvasRef.current) return;
-    const rect = canvasRef.current.getBoundingClientRect();
-    const worldPt = screenToWorld(e.clientX, e.clientY, viewport, rect);
-    const bounds = getObjectBounds(obj);
+    startObjectResize(obj, { x: e.clientX, y: e.clientY });
+  };
 
-    pushUndoSnapshot(objects);
-    interactionRef.current = {
-      mode: 'resizing_object',
-      startScreen: { x: e.clientX, y: e.clientY },
-      startWorld: worldPt,
-      startViewport: viewport,
-      dragSnapshots: new Map([[obj.id, JSON.parse(JSON.stringify(obj))]]),
-      resizeTargetId: obj.id,
-      resizeStartBounds: bounds,
-    };
+  // Start Object Corner Resize via Mobile Touch
+  const handleStartResizeTouch = (e: React.TouchEvent, obj: BoardObject) => {
+    if (e.touches.length !== 1) return;
+    e.stopPropagation();
+    const t = e.touches[0];
+    startObjectResize(obj, { x: t.clientX, y: t.clientY });
   };
 
   // Canvas Pointer Move
@@ -2223,11 +2468,13 @@ export default function App() {
       setFollowingUserId(null);
 
       if (targetPage) {
-        setObjects(targetPage.objects || []);
+        const pageObjs = targetPage.objects || [];
+        setObjects(pageObjs);
+        objectsRef.current = pageObjs;
         setBoardTitle(targetPage.name);
-        if (targetPage.viewport) {
-          setViewport(targetPage.viewport);
-        }
+        const pageVp = targetPage.viewport || { x: 60, y: 40, zoom: 1 };
+        setViewport(pageVp);
+        viewportRef.current = pageVp;
       }
 
       const url = new URL(window.location.href);
@@ -2235,12 +2482,12 @@ export default function App() {
       url.searchParams.set('page', targetPageId);
       window.history.pushState({}, '', url.toString());
     },
-    [activeProjectId, activePageId, objects, viewport, workspace.projects]
+    [activeProjectId, activePageId, workspace.projects]
   );
 
   const handleCreateProject = useCallback(
     (customName?: string) => {
-      const name = customName || `Project ${workspace.projects.length + 1}`;
+      const name = customName?.trim() || `Project ${workspace.projects.length + 1}`;
       const newProj = createNewProject(name);
 
       const updatedWs: WorkspaceState = {
@@ -2255,8 +2502,10 @@ export default function App() {
       setActivePageId(newProj.activePageId);
       setRoomId(newProj.activePageId);
       setObjects([]);
+      objectsRef.current = [];
       setBoardTitle('Page 1');
       setViewport({ x: 60, y: 40, zoom: 1 });
+      viewportRef.current = { x: 60, y: 40, zoom: 1 };
       setSelectedIds([]);
       setEditingId(null);
       setFollowingUserId(null);
@@ -2319,9 +2568,13 @@ export default function App() {
           setActiveProjectId(nextActiveProj.id);
           setActivePageId(nextActivePageId);
           setRoomId(nextActivePageId);
-          setObjects(nextActivePage ? nextActivePage.objects : []);
+          const objs = nextActivePage ? nextActivePage.objects : [];
+          setObjects(objs);
+          objectsRef.current = objs;
           setBoardTitle(nextActivePage ? nextActivePage.name : 'Page 1');
-          if (nextActivePage?.viewport) setViewport(nextActivePage.viewport);
+          const vp = nextActivePage?.viewport || { x: 60, y: 40, zoom: 1 };
+          setViewport(vp);
+          viewportRef.current = vp;
 
           const url = new URL(window.location.href);
           url.searchParams.set('project', nextActiveProj.id);
@@ -2348,7 +2601,7 @@ export default function App() {
               activePageId: newPageId,
               pages: p.pages.map((pg) =>
                 pg.id === activePageId
-                  ? { ...pg, objects, viewport, updatedAt: Date.now() }
+                  ? { ...pg, objects: objectsRef.current, viewport: viewportRef.current, updatedAt: Date.now() }
                   : pg
               ),
               updatedAt: Date.now(),
@@ -2368,23 +2621,25 @@ export default function App() {
       setSelectedIds([]);
       setEditingId(null);
       setFollowingUserId(null);
-      setObjects(targetPage.objects || []);
+      const pageObjs = targetPage.objects || [];
+      setObjects(pageObjs);
+      objectsRef.current = pageObjs;
       setBoardTitle(targetPage.name);
-      if (targetPage.viewport) {
-        setViewport(targetPage.viewport);
-      }
+      const pageVp = targetPage.viewport || { x: 60, y: 40, zoom: 1 };
+      setViewport(pageVp);
+      viewportRef.current = pageVp;
 
       const url = new URL(window.location.href);
       url.searchParams.set('project', activeProjectId);
       url.searchParams.set('page', newPageId);
       window.history.pushState({}, '', url.toString());
     },
-    [activeProjectId, activePageId, currentProject.pages, objects, viewport]
+    [activeProjectId, activePageId, currentProject.pages]
   );
 
   const handleCreatePage = useCallback(
     (customName?: string) => {
-      const pageName = customName || `Page ${currentProject.pages.length + 1}`;
+      const pageName = customName?.trim() || `Page ${currentProject.pages.length + 1}`;
       const newPage = createBlankPage(pageName);
 
       setWorkspace((prevWs) => {
@@ -2394,7 +2649,7 @@ export default function App() {
             if (p.id !== activeProjectId) return p;
             const updatedPages = p.pages.map((pg) =>
               pg.id === activePageId
-                ? { ...pg, objects, viewport, updatedAt: Date.now() }
+                ? { ...pg, objects: objectsRef.current, viewport: viewportRef.current, updatedAt: Date.now() }
                 : pg
             );
             return {
@@ -2412,8 +2667,10 @@ export default function App() {
       setActivePageId(newPage.id);
       setRoomId(newPage.id);
       setObjects([]);
+      objectsRef.current = [];
       setBoardTitle(newPage.name);
       setViewport({ x: 60, y: 40, zoom: 1 });
+      viewportRef.current = { x: 60, y: 40, zoom: 1 };
       setSelectedIds([]);
       setEditingId(null);
       setFollowingUserId(null);
@@ -2423,7 +2680,7 @@ export default function App() {
       url.searchParams.set('page', newPage.id);
       window.history.pushState({}, '', url.toString());
     },
-    [activeProjectId, activePageId, currentProject.pages, objects, viewport]
+    [activeProjectId, activePageId, currentProject.pages.length]
   );
 
   const handleRenamePage = useCallback(
@@ -2854,7 +3111,9 @@ export default function App() {
             return (
               <div
                 key={sec.id}
+                data-object-id={sec.id}
                 onMouseDown={(e) => handleObjectMouseDown(e, sec)}
+                onTouchStart={(e) => handleObjectTouchStart(e, sec)}
                 onDoubleClick={(e) => {
                   e.stopPropagation();
                   if (!sec.locked) setEditingId(sec.id);
@@ -2870,6 +3129,7 @@ export default function App() {
                     : isSearchMatch
                     ? '#F59E0B'
                     : pal.sectionBorder,
+                  touchAction: 'none',
                 }}
                 className={`absolute rounded-2xl border-2 transition-shadow ${
                   isSearchMatch
@@ -2885,7 +3145,7 @@ export default function App() {
                     backgroundColor: isSearchMatch ? '#FEF3C7' : pal.sectionHeaderBg,
                     color: isSearchMatch ? '#92400E' : pal.textHex,
                   }}
-                  className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-tl-xl rounded-br-xl text-xs font-bold tracking-tight ${
+                  className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-tl-xl rounded-br-xl text-xs font-bold tracking-tight select-none ${
                     isSearchMatch ? 'ring-2 ring-amber-400 shadow-sm' : ''
                   }`}
                 >
@@ -2917,8 +3177,10 @@ export default function App() {
                 {/* Resize Handle */}
                 {isSelected && !sec.locked && (
                   <div
+                    data-resize-id={sec.id}
                     onMouseDown={(e) => handleStartResize(e, sec)}
-                    className="w-3.5 h-3.5 bg-white border-2 border-indigo-600 rounded-sm absolute -bottom-1.5 -right-1.5 cursor-nwse-resize"
+                    onTouchStart={(e) => handleStartResizeTouch(e, sec)}
+                    className="w-5 h-5 md:w-3.5 md:h-3.5 bg-white border-2 border-indigo-600 rounded-sm absolute -bottom-2 -right-2 md:-bottom-1.5 md:-right-1.5 cursor-nwse-resize z-20"
                   />
                 )}
               </div>
@@ -2947,14 +3209,16 @@ export default function App() {
 
               return (
                 <g key={conn.id} className="pointer-events-auto">
-                  {/* Invisible wider hit target for easy clicking */}
+                  {/* Invisible wider hit target for easy clicking / touching */}
                   <path
                     d={geom.pathD}
                     fill="none"
                     stroke="transparent"
-                    strokeWidth={16}
+                    strokeWidth={24}
                     className="cursor-pointer"
+                    data-object-id={conn.id}
                     onMouseDown={(e) => handleObjectMouseDown(e, conn)}
+                    onTouchStart={(e) => handleObjectTouchStart(e as unknown as React.TouchEvent, conn)}
                     onDoubleClick={(e) => {
                       e.stopPropagation();
                       setEditingId(conn.id);
@@ -3005,9 +3269,11 @@ export default function App() {
                     d={d}
                     fill="none"
                     stroke="transparent"
-                    strokeWidth={Math.max(14, p.strokeWidth + 8)}
+                    strokeWidth={Math.max(18, p.strokeWidth + 12)}
                     className="cursor-pointer"
+                    data-object-id={p.id}
                     onMouseDown={(e) => handleObjectMouseDown(e, p)}
+                    onTouchStart={(e) => handleObjectTouchStart(e as unknown as React.TouchEvent, p)}
                   />
                   <path
                     d={d}
@@ -3053,17 +3319,20 @@ export default function App() {
             return (
               <div
                 key={`lbl-${conn.id}`}
+                data-object-id={conn.id}
                 style={{
                   left: geom.midPoint.x,
                   top: geom.midPoint.y,
                   transform: 'translate(-50%, -50%)',
+                  touchAction: 'none',
                 }}
                 onMouseDown={(e) => handleObjectMouseDown(e, conn)}
+                onTouchStart={(e) => handleObjectTouchStart(e, conn)}
                 onDoubleClick={(e) => {
                   e.stopPropagation();
                   setEditingId(conn.id);
                 }}
-                className="absolute z-20 bg-white border border-slate-200 shadow-xs px-2 py-0.5 rounded-md text-[11px] font-medium cursor-pointer"
+                className="absolute z-20 bg-white border border-slate-200 shadow-xs px-2 py-0.5 rounded-md text-[11px] font-medium cursor-pointer select-none"
               >
                 {isEditing ? (
                   <input
@@ -3110,9 +3379,11 @@ export default function App() {
               return (
                 <div
                   key={obj.id}
+                  data-object-id={obj.id}
                   onMouseEnter={() => setHoveredObjectId(obj.id)}
                   onMouseLeave={() => setHoveredObjectId(null)}
                   onMouseDown={(e) => handleObjectMouseDown(e, obj)}
+                  onTouchStart={(e) => handleObjectTouchStart(e, obj)}
                   onDoubleClick={(e) => {
                     e.stopPropagation();
                     if (!obj.locked) setEditingId(obj.id);
@@ -3131,6 +3402,7 @@ export default function App() {
                       ? selectingPeer.color
                       : pal.stickyBorder,
                     boxShadow: `0 10px 24px -6px ${pal.stickyShadow}, 0 2px 6px -1px rgba(0,0,0,0.05)`,
+                    touchAction: 'none',
                   }}
                   className={`absolute rounded-xl border-2 p-4 flex flex-col justify-between transition-transform ${
                     isSearchMatch
@@ -3140,6 +3412,26 @@ export default function App() {
                       : ''
                   }`}
                 >
+                  {/* Floating Edit Button on mobile when selected */}
+                  {isSelected && !obj.locked && !isEditing && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingId(obj.id);
+                      }}
+                      onTouchStart={(e) => {
+                        e.stopPropagation();
+                        setEditingId(obj.id);
+                      }}
+                      className="absolute -top-7 left-0 px-2 py-0.5 bg-indigo-600 text-white rounded text-[11px] font-semibold flex items-center gap-1 shadow-md hover:bg-indigo-700 active:scale-95 transition-all cursor-pointer z-30"
+                      title="Tap to edit note"
+                    >
+                      <Edit2 className="w-3 h-3" />
+                      <span>Edit</span>
+                    </button>
+                  )}
+
                   <div className="flex-1 min-h-0 flex flex-col">
                     {isEditing ? (
                       <textarea
@@ -3161,7 +3453,7 @@ export default function App() {
                       />
                     ) : (
                       <p
-                        className={`w-full h-full overflow-hidden whitespace-pre-wrap break-words text-slate-900 leading-snug ${getFontClass(
+                        className={`w-full h-full overflow-hidden whitespace-pre-wrap break-words text-slate-900 leading-snug select-none ${getFontClass(
                           obj.fontStyle
                         )} ${
                           obj.fontStyle === 'hand'
@@ -3171,7 +3463,7 @@ export default function App() {
                       >
                         {obj.text || (
                           <span className="opacity-40">
-                            Double-click to write...
+                            Double-click or tap Edit to write...
                           </span>
                         )}
                       </p>
@@ -3226,8 +3518,10 @@ export default function App() {
 
                   {isSelected && !obj.locked && (
                     <div
+                      data-resize-id={obj.id}
                       onMouseDown={(e) => handleStartResize(e, obj)}
-                      className="w-3.5 h-3.5 bg-white border-2 border-indigo-600 rounded-sm absolute -bottom-1.5 -right-1.5 cursor-nwse-resize z-20"
+                      onTouchStart={(e) => handleStartResizeTouch(e, obj)}
+                      className="w-5 h-5 md:w-3.5 md:h-3.5 bg-white border-2 border-indigo-600 rounded-sm absolute -bottom-2 -right-2 md:-bottom-1.5 md:-right-1.5 cursor-nwse-resize z-20"
                     />
                   )}
                 </div>
@@ -3252,9 +3546,11 @@ export default function App() {
               return (
                 <div
                   key={obj.id}
+                  data-object-id={obj.id}
                   onMouseEnter={() => setHoveredObjectId(obj.id)}
                   onMouseLeave={() => setHoveredObjectId(null)}
                   onMouseDown={(e) => handleObjectMouseDown(e, obj)}
+                  onTouchStart={(e) => handleObjectTouchStart(e, obj)}
                   onDoubleClick={(e) => {
                     e.stopPropagation();
                     if (!obj.locked) setEditingId(obj.id);
@@ -3264,6 +3560,7 @@ export default function App() {
                     top: obj.y,
                     width: obj.width,
                     height: obj.height,
+                    touchAction: 'none',
                   }}
                   className={`absolute flex items-center justify-center p-3 transition-shadow ${
                     isSearchMatch
@@ -3337,7 +3634,7 @@ export default function App() {
                     )}
                   </svg>
 
-                  <div className="relative z-10 w-full text-center px-2">
+                  <div className="relative z-10 w-full text-center px-2 select-none">
                     {isEditing ? (
                       <textarea
                         value={obj.text}
@@ -3392,8 +3689,10 @@ export default function App() {
 
                   {isSelected && !obj.locked && (
                     <div
+                      data-resize-id={obj.id}
                       onMouseDown={(e) => handleStartResize(e, obj)}
-                      className="w-3.5 h-3.5 bg-white border-2 border-indigo-600 rounded-sm absolute -bottom-1.5 -right-1.5 cursor-nwse-resize z-20"
+                      onTouchStart={(e) => handleStartResizeTouch(e, obj)}
+                      className="w-5 h-5 md:w-3.5 md:h-3.5 bg-white border-2 border-indigo-600 rounded-sm absolute -bottom-2 -right-2 md:-bottom-1.5 md:-right-1.5 cursor-nwse-resize z-20"
                     />
                   )}
                 </div>
@@ -3407,7 +3706,9 @@ export default function App() {
               return (
                 <div
                   key={obj.id}
+                  data-object-id={obj.id}
                   onMouseDown={(e) => handleObjectMouseDown(e, obj)}
+                  onTouchStart={(e) => handleObjectTouchStart(e, obj)}
                   onDoubleClick={(e) => {
                     e.stopPropagation();
                     if (!obj.locked) setEditingId(obj.id);
@@ -3418,6 +3719,7 @@ export default function App() {
                     width: obj.width,
                     minHeight: obj.height,
                     color: pal.textHex,
+                    touchAction: 'none',
                   }}
                   className={`absolute p-1.5 rounded-lg transition-all ${
                     isSearchMatch
@@ -3427,6 +3729,26 @@ export default function App() {
                       : 'hover:bg-black/3'
                   }`}
                 >
+                  {/* Floating Mobile/Touch Edit Button when selected */}
+                  {isSelected && !obj.locked && !isEditing && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingId(obj.id);
+                      }}
+                      onTouchStart={(e) => {
+                        e.stopPropagation();
+                        setEditingId(obj.id);
+                      }}
+                      className="absolute -top-7 left-0 px-2 py-0.5 bg-indigo-600 text-white rounded text-[11px] font-semibold flex items-center gap-1 shadow-md hover:bg-indigo-700 active:scale-95 transition-all cursor-pointer z-30 select-none"
+                      title="Tap to edit text"
+                    >
+                      <Edit2 className="w-3 h-3" />
+                      <span>Edit</span>
+                    </button>
+                  )}
+
                   {isEditing ? (
                     <textarea
                       value={obj.text}
@@ -3445,7 +3767,7 @@ export default function App() {
                     />
                   ) : (
                     <div
-                      className={`font-bold text-xl leading-tight whitespace-pre-wrap ${getFontClass(
+                      className={`font-bold text-xl leading-tight whitespace-pre-wrap select-none ${getFontClass(
                         obj.fontStyle
                       )}`}
                     >
@@ -3455,8 +3777,10 @@ export default function App() {
 
                   {isSelected && !obj.locked && (
                     <div
+                      data-resize-id={obj.id}
                       onMouseDown={(e) => handleStartResize(e, obj)}
-                      className="w-3.5 h-3.5 bg-white border-2 border-indigo-600 rounded-sm absolute -bottom-1.5 -right-1.5 cursor-nwse-resize"
+                      onTouchStart={(e) => handleStartResizeTouch(e, obj)}
+                      className="w-5 h-5 md:w-3.5 md:h-3.5 bg-white border-2 border-indigo-600 rounded-sm absolute -bottom-2 -right-2 md:-bottom-1.5 md:-right-1.5 cursor-nwse-resize z-20"
                     />
                   )}
                 </div>
@@ -3468,15 +3792,18 @@ export default function App() {
               return (
                 <div
                   key={obj.id}
+                  data-object-id={obj.id}
                   onMouseDown={(e) => handleObjectMouseDown(e, obj)}
+                  onTouchStart={(e) => handleObjectTouchStart(e, obj)}
                   style={{
                     left: obj.x,
                     top: obj.y,
                     transform: `translate(-50%, -50%) rotate(${obj.rotation}deg) scale(${obj.scale})`,
                     borderColor: isSelected ? '#4F46E5' : obj.authorColor,
+                    touchAction: 'none',
                   }}
                   title={`Stamped by ${obj.authorName}`}
-                  className="absolute w-13 h-13 rounded-full bg-white shadow-md border-2 flex items-center justify-center cursor-pointer transition-transform hover:scale-110"
+                  className="absolute w-13 h-13 rounded-full bg-white shadow-md border-2 flex items-center justify-center cursor-pointer transition-transform hover:scale-110 select-none"
                 >
                   <div style={{ color: obj.authorColor }}>
                     {renderStampIcon(obj.stampKind, 'w-6 h-6')}
@@ -3491,9 +3818,11 @@ export default function App() {
               return (
                 <div
                   key={obj.id}
+                  data-object-id={obj.id}
                   onMouseEnter={() => setHoveredObjectId(obj.id)}
                   onMouseLeave={() => setHoveredObjectId(null)}
                   onMouseDown={(e) => handleObjectMouseDown(e, obj)}
+                  onTouchStart={(e) => handleObjectTouchStart(e, obj)}
                   onDoubleClick={(e) => {
                     e.stopPropagation();
                     setPreviewAttachment(obj);
@@ -3503,6 +3832,7 @@ export default function App() {
                     top: obj.y,
                     width: obj.width,
                     height: obj.height,
+                    touchAction: 'none',
                   }}
                   className={`absolute bg-white rounded-2xl border-2 shadow-md hover:shadow-xl transition-all flex flex-col overflow-hidden ${
                     isSearchMatch
@@ -3690,8 +4020,10 @@ export default function App() {
                   {/* Resize Handle */}
                   {isSelected && !obj.locked && (
                     <div
+                      data-resize-id={obj.id}
                       onMouseDown={(e) => handleStartResize(e, obj)}
-                      className="w-3.5 h-3.5 bg-white border-2 border-indigo-600 rounded-sm absolute -bottom-1.5 -right-1.5 cursor-nwse-resize z-20"
+                      onTouchStart={(e) => handleStartResizeTouch(e, obj)}
+                      className="w-5 h-5 md:w-3.5 md:h-3.5 bg-white border-2 border-indigo-600 rounded-sm absolute -bottom-2 -right-2 md:-bottom-1.5 md:-right-1.5 cursor-nwse-resize z-20"
                     />
                   )}
                 </div>
