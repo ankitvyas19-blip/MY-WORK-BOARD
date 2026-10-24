@@ -8,6 +8,8 @@
   }
 
   html, body, #root {
+    position: fixed;
+    inset: 0;
     font-family: var(--font-sans);
     user-select: none;
     -webkit-user-select: none;

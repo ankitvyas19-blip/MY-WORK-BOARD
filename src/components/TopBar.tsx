@@ -298,7 +298,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   };
 
   return (
-    <header className="h-14 border-b border-slate-200/90 bg-white/95 backdrop-blur-md px-2 sm:px-4 flex items-center justify-between z-50 relative shrink-0 select-none shadow-xs w-full flex-nowrap overflow-visible">
+    <header className="h-14 fixed top-0 left-0 right-0 z-50 border-b border-slate-200/90 bg-white/95 backdrop-blur-md px-2 sm:px-4 flex items-center justify-between select-none shadow-xs w-full flex-nowrap overflow-visible">
       {/* Hidden File Input for Attachments */}
       <input
         ref={fileInputRef}

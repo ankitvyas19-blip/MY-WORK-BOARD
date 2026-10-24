@@ -553,6 +553,10 @@ export default function App() {
   const [cursorChatText, setCursorChatText] = useState('');
   const [screenCursorPos, setScreenCursorPos] = useState({ x: 500, y: 360 });
   const [worldCursorPos, setWorldCursorPos] = useState({ x: 450, y: 300 });
+  const worldCursorPosRef = useRef(worldCursorPos);
+  useEffect(() => {
+    worldCursorPosRef.current = worldCursorPos;
+  }, [worldCursorPos]);
 
   // Floating Reactions
   const [reactions, setReactions] = useState<FloatingReaction[]>([]);
@@ -2134,7 +2138,8 @@ export default function App() {
           const focalY = currentCenter.y - rect.top;
 
           const prevVp = viewportRef.current;
-          const nextZoom = Math.min(4, Math.max(0.15, prevVp.zoom * scale));
+          // Support high zoom up to 40x (4000%) and down to 3%
+          const nextZoom = Math.min(40.0, Math.max(0.03, prevVp.zoom * scale));
 
           // Focal zoom around center of two fingers + translation
           const nextX = focalX - ((focalX - prevVp.x) / prevVp.zoom) * nextZoom + dx;
@@ -2310,10 +2315,118 @@ export default function App() {
       }
     };
 
+    // Non-passive wheel handler: Prevents browser page zoom on trackpad pinch (ctrlKey) and handles canvas zoom & pan
+    const onNativeWheel = (e: WheelEvent) => {
+      // 1. Laptop Trackpad Pinch-to-Zoom or Ctrl + Mouse Wheel
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        setFollowingUserId(null);
+
+        const rect = canvasEl.getBoundingClientRect();
+        const clientX = e.clientX;
+        const clientY = e.clientY;
+        const mouseX = clientX - rect.left;
+        const mouseY = clientY - rect.top;
+
+        // Smooth trackpad pinch & mouse wheel zoom factor (power curve)
+        const zoomDelta = -e.deltaY;
+        const factor = Math.exp(zoomDelta * 0.006);
+        const vp = viewportRef.current;
+        // Support up to 40x (4000%) zoom in and 0.03x (3%) zoom out
+        const nextZoom = Math.min(40.0, Math.max(0.03, vp.zoom * factor));
+
+        const nextX = mouseX - ((mouseX - vp.x) / vp.zoom) * nextZoom;
+        const nextY = mouseY - ((mouseY - vp.y) / vp.zoom) * nextZoom;
+
+        const nextVp = { x: nextX, y: nextY, zoom: nextZoom };
+        viewportRef.current = nextVp;
+        setViewport(nextVp);
+        emitCursorTelemetry(worldCursorPosRef.current, undefined, nextVp);
+        return;
+      }
+
+      // 2. Normal two-finger pan or mouse wheel scroll
+      // Allow scrolling inside dropdowns, modals, and textareas
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.closest('input, textarea, select, [data-scrollable="true"]') ||
+          target.closest('.overflow-y-auto') ||
+          target.closest('.overflow-auto'))
+      ) {
+        return;
+      }
+
+      e.preventDefault();
+      setFollowingUserId(null);
+      const vp = viewportRef.current;
+      const nextVp = {
+        ...vp,
+        x: vp.x - e.deltaX,
+        y: vp.y - e.deltaY,
+      };
+      viewportRef.current = nextVp;
+      setViewport(nextVp);
+      emitCursorTelemetry(worldCursorPosRef.current, undefined, nextVp);
+    };
+
+    // Keyboard Ctrl + (+/-) zoom prevention: Zooms canvas instead of browser page
+    const onNativeKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key === '=' || e.key === '+' || e.key === '-') {
+          e.preventDefault();
+          const factor = e.key === '-' ? 0.82 : 1.22;
+          const vp = viewportRef.current;
+          const nextZoom = Math.min(40.0, Math.max(0.03, vp.zoom * factor));
+          const cx = window.innerWidth / 2;
+          const cy = window.innerHeight / 2;
+          const nextX = cx - ((cx - vp.x) / vp.zoom) * nextZoom;
+          const nextY = cy - ((cy - vp.y) / vp.zoom) * nextZoom;
+          const nextVp = { x: nextX, y: nextY, zoom: nextZoom };
+          viewportRef.current = nextVp;
+          setViewport(nextVp);
+          return;
+        }
+        if (e.key === '0') {
+          e.preventDefault();
+          const vp = viewportRef.current;
+          const cx = window.innerWidth / 2;
+          const cy = window.innerHeight / 2;
+          const nextZoom = 1.0;
+          const nextX = cx - ((cx - vp.x) / vp.zoom) * nextZoom;
+          const nextY = cy - ((cy - vp.y) / vp.zoom) * nextZoom;
+          const nextVp = { x: nextX, y: nextY, zoom: nextZoom };
+          viewportRef.current = nextVp;
+          setViewport(nextVp);
+          return;
+        }
+      }
+    };
+
+    // Universal multi-touch prevention: Stop mobile browsers from zooming visualViewport
+    const preventMultiTouch = (e: TouchEvent) => {
+      if (e.touches.length >= 2 && e.cancelable) {
+        e.preventDefault();
+      }
+    };
+
+    // Visual viewport drift lock: keep window strictly pinned to (0,0)
+    const resetWindowScroll = () => {
+      if (window.scrollX !== 0 || window.scrollY !== 0) {
+        window.scrollTo(0, 0);
+      }
+    };
+
     canvasEl.addEventListener('touchstart', onTouchStart, { passive: false });
     window.addEventListener('touchmove', onTouchMove, { passive: false });
     window.addEventListener('touchend', onTouchEnd, { passive: false });
     window.addEventListener('touchcancel', onTouchEnd, { passive: false });
+    window.addEventListener('wheel', onNativeWheel, { passive: false });
+    window.addEventListener('keydown', onNativeKeyDown, { passive: false });
+    window.addEventListener('scroll', resetWindowScroll, { passive: true });
+    window.visualViewport?.addEventListener('scroll', resetWindowScroll);
+    window.visualViewport?.addEventListener('resize', resetWindowScroll);
+    document.addEventListener('touchstart', preventMultiTouch, { passive: false });
 
     return () => {
       document.removeEventListener('gesturestart', preventSafariGesture);
@@ -2323,38 +2436,18 @@ export default function App() {
       window.removeEventListener('touchmove', onTouchMove);
       window.removeEventListener('touchend', onTouchEnd);
       window.removeEventListener('touchcancel', onTouchEnd);
+      window.removeEventListener('wheel', onNativeWheel);
+      window.removeEventListener('keydown', onNativeKeyDown);
+      window.removeEventListener('scroll', resetWindowScroll);
+      window.visualViewport?.removeEventListener('scroll', resetWindowScroll);
+      window.visualViewport?.removeEventListener('resize', resetWindowScroll);
+      document.removeEventListener('touchstart', preventMultiTouch);
     };
   }, [isAuthenticated]);
 
-  // Wheel Zoom & Two-Finger Pan on Infinite Canvas
+  // Wheel Zoom & Two-Finger Pan on Infinite Canvas (Synthetic Fallback)
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
     e.preventDefault();
-    setFollowingUserId(null);
-
-    if (e.ctrlKey || e.metaKey) {
-      // Focal-point zoom around cursor
-      const rect = e.currentTarget.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const mouseY = e.clientY - rect.top;
-      const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
-      const nextZoom = Math.min(4, Math.max(0.15, viewport.zoom * zoomFactor));
-
-      const nextX = mouseX - ((mouseX - viewport.x) / viewport.zoom) * nextZoom;
-      const nextY = mouseY - ((mouseY - viewport.y) / viewport.zoom) * nextZoom;
-
-      const nextVp = { x: nextX, y: nextY, zoom: nextZoom };
-      setViewport(nextVp);
-      emitCursorTelemetry(worldCursorPos, undefined, nextVp);
-    } else {
-      // Pan canvas
-      const nextVp = {
-        ...viewport,
-        x: viewport.x - e.deltaX,
-        y: viewport.y - e.deltaY,
-      };
-      setViewport(nextVp);
-      emitCursorTelemetry(worldCursorPos, undefined, nextVp);
-    }
   };
 
   // Start Connector Drag from a Specific Anchor Port
@@ -3375,7 +3468,7 @@ export default function App() {
 
   return (
     <div
-      className="h-screen w-screen flex flex-col bg-[#F8F9FA] overflow-hidden select-none"
+      className="fixed inset-0 w-full h-full flex flex-col bg-[#F8F9FA] overflow-hidden select-none"
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => {
         e.preventDefault();
@@ -3447,6 +3540,9 @@ export default function App() {
           setIsAuthenticated(false);
         }}
       />
+
+      {/* TopBar Height Placeholder to preserve layout flow beneath fixed header */}
+      <div className="h-14 shrink-0 w-full pointer-events-none select-none" aria-hidden="true" />
 
       {/* Cloud Backup Notification Banner if an autosaved version exists in Drive */}
       {cloudBackupNotification && isDriveSignedIn && (
@@ -4787,7 +4883,7 @@ export default function App() {
         onZoomStep={(delta) => {
           setFollowingUserId(null);
           setViewport((prev) => {
-            const nextZoom = Math.min(4, Math.max(0.15, prev.zoom + delta));
+            const nextZoom = Math.min(40.0, Math.max(0.03, prev.zoom + delta));
             const cx = canvasSize.width / 2;
             const cy = canvasSize.height / 2;
             return {
@@ -4799,7 +4895,16 @@ export default function App() {
         }}
         onResetZoom={() => {
           setFollowingUserId(null);
-          setViewport((prev) => ({ ...prev, zoom: 1 }));
+          setViewport((prev) => {
+            const cx = canvasSize.width / 2;
+            const cy = canvasSize.height / 2;
+            const nextZoom = 1;
+            return {
+              x: cx - ((cx - prev.x) / prev.zoom) * nextZoom,
+              y: cy - ((cy - prev.y) / prev.zoom) * nextZoom,
+              zoom: nextZoom,
+            };
+          });
         }}
         onFitToContent={handleFitToContent}
       />
