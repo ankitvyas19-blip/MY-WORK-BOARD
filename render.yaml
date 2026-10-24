@@ -3,6 +3,7 @@ services:
     name: canvasjam-whiteboard
     env: node
     plan: free
+    autoDeploy: true
     buildCommand: npm install && npm run build
     startCommand: npm start
     envVars:
