@@ -27,6 +27,9 @@ import {
   Trash2,
   ShieldCheck,
   RotateCcw,
+  Edit2,
+  Move,
+  Check,
 } from 'lucide-react';
 import {
   ActivityItem,
@@ -98,8 +101,10 @@ import {
 } from './services/driveService';
 import {
   loadWorkspaceFromStorage,
+  loadWorkspaceFromIndexedDB,
   saveWorkspaceToStorage,
   fetchWorkspaceFromServer,
+  mergeAndResolveWorkspaces,
   createBlankPage,
   createNewProject,
 } from './services/workspaceService';
@@ -284,9 +289,56 @@ export default function App() {
     };
   });
 
-  // Debounced auto-save of current page canvas objects & viewport to Local Storage
+  const workspaceRef = useRef<WorkspaceState>(workspace);
   useEffect(() => {
+    workspaceRef.current = workspace;
+  }, [workspace]);
+
+  const isWorkspaceHydratedRef = useRef<boolean>(false);
+
+  // Helper to build and persist the current live snapshot immediately
+  const handleSaveWorkspaceNow = useCallback(() => {
+    const curObjects = objectsRef.current;
+    const curVp = viewportRef.current;
+    const now = Date.now();
+    setWorkspace((prevWs) => {
+      const nextProjects = prevWs.projects.map((proj) => {
+        if (proj.id !== activeProjectId) return proj;
+        const nextPages = proj.pages.map((pg) => {
+          if (pg.id !== activePageId) return pg;
+          return {
+            ...pg,
+            name: boardTitle || pg.name,
+            objects: curObjects,
+            viewport: curVp,
+            updatedAt: now,
+          };
+        });
+        return {
+          ...proj,
+          activePageId,
+          pages: nextPages,
+          updatedAt: now,
+        };
+      });
+      const updatedState: WorkspaceState = {
+        ...prevWs,
+        activeProjectId,
+        projects: nextProjects,
+      };
+      workspaceRef.current = updatedState;
+      saveWorkspaceToStorage(updatedState, true);
+      return updatedState;
+    });
+  }, [activePageId, activeProjectId, boardTitle]);
+
+  // Debounced auto-save of current page canvas objects & viewport to Local Storage, IndexedDB & Server
+  useEffect(() => {
+    if (!isWorkspaceHydratedRef.current && objects.length === 0) {
+      return;
+    }
     const timeout = setTimeout(() => {
+      const now = Date.now();
       setWorkspace((prevWs) => {
         const nextProjects = prevWs.projects.map((proj) => {
           if (proj.id !== activeProjectId) return proj;
@@ -294,16 +346,17 @@ export default function App() {
             if (pg.id !== activePageId) return pg;
             return {
               ...pg,
+              name: boardTitle || pg.name,
               objects,
               viewport,
-              updatedAt: Date.now(),
+              updatedAt: now,
             };
           });
           return {
             ...proj,
             activePageId,
             pages: nextPages,
-            updatedAt: Date.now(),
+            updatedAt: now,
           };
         });
         const updatedState: WorkspaceState = {
@@ -311,64 +364,72 @@ export default function App() {
           activeProjectId,
           projects: nextProjects,
         };
+        workspaceRef.current = updatedState;
         saveWorkspaceToStorage(updatedState);
         return updatedState;
       });
-    }, 250);
+    }, 200);
 
     return () => clearTimeout(timeout);
-  }, [objects, viewport, activeProjectId, activePageId]);
+  }, [objects, viewport, activeProjectId, activePageId, boardTitle]);
 
-  // Sync workspace with server persistent disk on mount
+  // Hydrate workspace from LocalStorage + IndexedDB + Server Cloud on mount
   useEffect(() => {
-    fetchWorkspaceFromServer().then((serverWs) => {
-      if (serverWs && Array.isArray(serverWs.projects) && serverWs.projects.length > 0) {
-        setWorkspace((localWs) => {
-          const getWorkspaceLatestTimestamp = (ws: WorkspaceState) => {
-            let maxTs = 0;
-            for (const p of ws.projects) {
-              if (p.updatedAt && p.updatedAt > maxTs) maxTs = p.updatedAt;
-              for (const pg of p.pages) {
-                if (pg.updatedAt && pg.updatedAt > maxTs) maxTs = pg.updatedAt;
-              }
-            }
-            return maxTs;
-          };
+    let cancelled = false;
+    Promise.all([loadWorkspaceFromIndexedDB(), fetchWorkspaceFromServer()]).then(
+      ([idbWs, serverWs]) => {
+        if (cancelled) return;
+        const localWs = loadWorkspaceFromStorage();
+        const bestWs = mergeAndResolveWorkspaces([localWs, idbWs, serverWs]);
+        isWorkspaceHydratedRef.current = true;
 
-          const localTs = getWorkspaceLatestTimestamp(localWs);
-          const serverTs = getWorkspaceLatestTimestamp(serverWs);
+        setWorkspace(bestWs);
+        workspaceRef.current = bestWs;
+        saveWorkspaceToStorage(bestWs, true);
 
-          // ONLY apply server workspace if server is strictly newer than local
-          if (serverTs > localTs && serverTs > 0) {
-            saveWorkspaceToStorage(serverWs);
-            const activeProj =
-              serverWs.projects.find((p) => p.id === serverWs.activeProjectId) ||
-              serverWs.projects[0];
-            const activePg =
-              activeProj.pages.find((pg) => pg.id === activeProj.activePageId) ||
-              activeProj.pages[0];
-            if (activePg) {
-              setActiveProjectId(activeProj.id);
-              setActivePageId(activePg.id);
-              setBoardTitle(activePg.name || 'Page 1');
-              if (activePg.objects) {
-                setObjects(activePg.objects);
-                objectsRef.current = activePg.objects;
-              }
-              if (activePg.viewport) {
-                setViewport(activePg.viewport);
-                viewportRef.current = activePg.viewport;
-              }
+        const params = new URLSearchParams(window.location.search);
+        const urlProjId = params.get('project');
+        const urlPageId = params.get('page');
+
+        const activeProj =
+          (urlProjId && bestWs.projects.find((p) => p.id === urlProjId)) ||
+          bestWs.projects.find((p) => p.id === bestWs.activeProjectId) ||
+          bestWs.projects[0];
+
+        if (activeProj) {
+          const activePg =
+            (urlPageId && activeProj.pages.find((pg) => pg.id === urlPageId)) ||
+            activeProj.pages.find((pg) => pg.id === activeProj.activePageId) ||
+            activeProj.pages[0];
+
+          if (activePg) {
+            setActiveProjectId(activeProj.id);
+            setActivePageId(activePg.id);
+            setRoomId(activePg.id);
+            setBoardTitle(activePg.name || 'Page 1');
+            const restoredObjects = Array.isArray(activePg.objects) ? activePg.objects : [];
+            setObjects(restoredObjects);
+            objectsRef.current = restoredObjects;
+            if (activePg.viewport) {
+              setViewport(activePg.viewport);
+              viewportRef.current = activePg.viewport;
             }
-            return serverWs;
-          } else {
-            // Local is newer or equal: persist local changes to server so server disk is kept up to date
-            saveWorkspaceToStorage(localWs);
-            return localWs;
+            if (
+              restoredObjects.length > 0 &&
+              wsRef.current &&
+              wsRef.current.readyState === WebSocket.OPEN
+            ) {
+              wsRef.current.send(
+                JSON.stringify({ type: 'board:replace_all', objects: restoredObjects })
+              );
+            }
           }
-        });
+        }
       }
-    });
+    );
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleExportWorkspaceBackup = useCallback(() => {
@@ -870,8 +931,52 @@ export default function App() {
         let dataUrl: string | undefined = undefined;
         let textContent: string | undefined = undefined;
 
-        // Extract data URL or text content for immediate inline preview
-        if (kind === 'image' || kind === 'pdf') {
+        // Extract data URL or text content for immediate inline preview & permanent cloud persistence
+        if (kind === 'image') {
+          try {
+            const rawDataUrl = await new Promise<string>((resolve) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result as string);
+              reader.readAsDataURL(file);
+            });
+            // Optimize large phone camera photos (>300KB) so they save instantly in localStorage, IndexedDB, & Cloud
+            if (file.size > 300 * 1024 && !file.type.includes('svg')) {
+              dataUrl = await new Promise<string>((resolve) => {
+                const img = new Image();
+                img.onload = () => {
+                  const maxDim = 1400;
+                  let w = img.width;
+                  let h = img.height;
+                  if (w > maxDim || h > maxDim) {
+                    if (w > h) {
+                      h = Math.round((h * maxDim) / w);
+                      w = maxDim;
+                    } else {
+                      w = Math.round((w * maxDim) / h);
+                      h = maxDim;
+                    }
+                  }
+                  const offCanvas = document.createElement('canvas');
+                  offCanvas.width = w;
+                  offCanvas.height = h;
+                  const ctx = offCanvas.getContext('2d');
+                  if (ctx) {
+                    ctx.drawImage(img, 0, 0, w, h);
+                    resolve(offCanvas.toDataURL('image/jpeg', 0.84));
+                  } else {
+                    resolve(rawDataUrl);
+                  }
+                };
+                img.onerror = () => resolve(rawDataUrl);
+                img.src = rawDataUrl;
+              });
+            } else {
+              dataUrl = rawDataUrl;
+            }
+          } catch (e) {
+            console.error('Failed to read image as DataURL', e);
+          }
+        } else if (kind === 'pdf') {
           try {
             dataUrl = await new Promise<string>((resolve) => {
               const reader = new FileReader();
@@ -879,7 +984,7 @@ export default function App() {
               reader.readAsDataURL(file);
             });
           } catch (e) {
-            console.error('Failed to read file as DataURL', e);
+            console.error('Failed to read PDF as DataURL', e);
           }
         } else if (kind === 'excel' && (file.name.endsWith('.csv') || file.type === 'text/csv')) {
           try {
@@ -923,7 +1028,11 @@ export default function App() {
         };
 
         // Add to local state & broadcast over WebSockets
-        setObjects((prev) => [...prev, newAttachment].sort((a, b) => a.zIndex - b.zIndex));
+        setObjects((prev) => {
+          const next = [...prev, newAttachment].sort((a, b) => a.zIndex - b.zIndex);
+          objectsRef.current = next;
+          return next;
+        });
         sendWs({ type: 'object:create', object: newAttachment });
 
         // If Google Drive is signed in, upload file to user's 5 TB Drive in background!
@@ -1227,22 +1336,30 @@ export default function App() {
   // Mutate Object Locally & Broadcast
   const createBoardObject = useCallback(
     (newObj: BoardObject, recordUndo = true) => {
-      if (recordUndo) pushUndoSnapshot(objects);
-      setObjects((prev) => [...prev, newObj].sort((a, b) => a.zIndex - b.zIndex));
-      sendWs({ type: 'object:create', object: newObj });
+      if (recordUndo) pushUndoSnapshot(objectsRef.current);
+      const stamped = { ...newObj, updatedAt: Date.now() };
+      setObjects((prev) => {
+        const next = [...prev, stamped].sort((a, b) => a.zIndex - b.zIndex);
+        objectsRef.current = next;
+        return next;
+      });
+      sendWs({ type: 'object:create', object: stamped });
     },
-    [objects, pushUndoSnapshot, sendWs]
+    [pushUndoSnapshot, sendWs]
   );
 
   const updateBoardObject = useCallback(
     (updatedObj: BoardObject, emit = true) => {
-      setObjects((prev) =>
-        prev
-          .map((o) => (o.id === updatedObj.id ? updatedObj : o))
-          .sort((a, b) => a.zIndex - b.zIndex)
-      );
+      const stamped = { ...updatedObj, updatedAt: Date.now() };
+      setObjects((prev) => {
+        const next = prev
+          .map((o) => (o.id === stamped.id ? stamped : o))
+          .sort((a, b) => a.zIndex - b.zIndex);
+        objectsRef.current = next;
+        return next;
+      });
       if (emit) {
-        sendWs({ type: 'object:update', object: updatedObj });
+        sendWs({ type: 'object:update', object: stamped });
       }
     },
     [sendWs]
@@ -1250,14 +1367,18 @@ export default function App() {
 
   const batchUpdateBoardObjects = useCallback(
     (updatedList: BoardObject[], emit = true) => {
-      const map = new Map(updatedList.map((u) => [u.id, u]));
-      setObjects((prev) =>
-        prev
+      const now = Date.now();
+      const stampedList = updatedList.map((u) => ({ ...u, updatedAt: now }));
+      const map = new Map(stampedList.map((u) => [u.id, u]));
+      setObjects((prev) => {
+        const next = prev
           .map((o) => map.get(o.id) || o)
-          .sort((a, b) => a.zIndex - b.zIndex)
-      );
+          .sort((a, b) => a.zIndex - b.zIndex);
+        objectsRef.current = next;
+        return next;
+      });
       if (emit) {
-        sendWs({ type: 'object:batch_update', objects: updatedList });
+        sendWs({ type: 'object:batch_update', objects: stampedList });
       }
     },
     [sendWs]
@@ -1266,10 +1387,10 @@ export default function App() {
   // Safe delete with Google Drive destructive operation confirmation
   const requestDeleteObjects = useCallback(
     (targetIds?: string[]) => {
-      const idsToRemove = targetIds || selectedIds;
+      const idsToRemove = targetIds || selectedIdsRef.current;
       if (idsToRemove.length === 0) return;
 
-      const driveAttachments = objects.filter(
+      const driveAttachments = objectsRef.current.filter(
         (o): o is AttachmentObject =>
           idsToRemove.includes(o.id) && o.type === 'attachment' && !!o.driveFileId
       );
@@ -1294,8 +1415,12 @@ export default function App() {
               }
             }
             // Delete from canvas
-            pushUndoSnapshot(objects);
-            setObjects((prev) => prev.filter((o) => !idsToRemove.includes(o.id)));
+            pushUndoSnapshot(objectsRef.current);
+            setObjects((prev) => {
+              const next = prev.filter((o) => !idsToRemove.includes(o.id));
+              objectsRef.current = next;
+              return next;
+            });
             setSelectedIds((prev) => prev.filter((id) => !idsToRemove.includes(id)));
             sendWs({ type: 'object:delete', ids: idsToRemove });
           },
@@ -1304,12 +1429,16 @@ export default function App() {
       }
 
       // No drive files affected, delete directly
-      pushUndoSnapshot(objects);
-      setObjects((prev) => prev.filter((o) => !idsToRemove.includes(o.id)));
+      pushUndoSnapshot(objectsRef.current);
+      setObjects((prev) => {
+        const next = prev.filter((o) => !idsToRemove.includes(o.id));
+        objectsRef.current = next;
+        return next;
+      });
       setSelectedIds((prev) => prev.filter((id) => !idsToRemove.includes(id)));
       sendWs({ type: 'object:delete', ids: idsToRemove });
     },
-    [objects, pushUndoSnapshot, selectedIds, sendWs]
+    [pushUndoSnapshot, sendWs]
   );
 
   const duplicateSelectedObjects = useCallback(() => {
@@ -1593,6 +1722,11 @@ export default function App() {
     [pushUndoSnapshot]
   );
 
+  const editingIdRef = useRef<string | null>(editingId);
+  useEffect(() => {
+    editingIdRef.current = editingId;
+  }, [editingId]);
+
   const startObjectDragRef = useRef(startObjectDrag);
   useEffect(() => {
     startObjectDragRef.current = startObjectDrag;
@@ -1613,7 +1747,196 @@ export default function App() {
     updateBoardObjectRef.current = updateBoardObject;
   }, [updateBoardObject]);
 
-  // Native non-passive touch listeners on canvas for smooth mobile pinch-to-zoom & pan
+  // Helper to create tool objects on mobile touch or mouse click at a given screen point
+  const handleTouchCreateAtScreenPoint = useCallback(
+    (clientX: number, clientY: number): boolean => {
+      if (!canvasRef.current) return false;
+      const tool = activeToolRef.current;
+      if (
+        tool !== 'sticky' &&
+        tool !== 'shape' &&
+        tool !== 'text' &&
+        tool !== 'stamp' &&
+        tool !== 'section' &&
+        tool !== 'pen'
+      ) {
+        return false;
+      }
+
+      const rect = canvasRef.current.getBoundingClientRect();
+      const worldPt = screenToWorld(clientX, clientY, viewportRef.current, rect);
+
+      if (tool === 'sticky') {
+        const id = `sticky-${Date.now()}`;
+        const newSticky: StickyNoteObject = {
+          id,
+          type: 'sticky',
+          x: Math.round(worldPt.x - 115),
+          y: Math.round(worldPt.y - 95),
+          width: 230,
+          height: 190,
+          text: '',
+          color: activeColor,
+          authorName: currentUser.name,
+          authorColor: currentUser.color,
+          votes: [],
+          fontStyle: 'hand',
+          fontSize: 'md',
+          zIndex: Date.now() % 100000,
+          updatedAt: Date.now(),
+        };
+        createBoardObject(newSticky);
+        setSelectedIds([id]);
+        setEditingId(id);
+        setActiveTool('select');
+        return true;
+      }
+
+      if (tool === 'shape') {
+        const id = `shape-${Date.now()}`;
+        const newShape: ShapeObject = {
+          id,
+          type: 'shape',
+          shapeKind: activeShapeKind,
+          x: Math.round(worldPt.x - 95),
+          y: Math.round(worldPt.y - 50),
+          width: 190,
+          height: 100,
+          text: 'New Step',
+          color: activeColor,
+          fillStyle: 'tinted',
+          fontStyle: 'sans',
+          zIndex: Date.now() % 100000,
+          updatedAt: Date.now(),
+        };
+        createBoardObject(newShape);
+        setSelectedIds([id]);
+        setEditingId(id);
+        setActiveTool('select');
+        return true;
+      }
+
+      if (tool === 'text') {
+        const id = `text-${Date.now()}`;
+        const newText: TextObject = {
+          id,
+          type: 'text',
+          x: Math.round(worldPt.x - 120),
+          y: Math.round(worldPt.y - 24),
+          width: 320,
+          height: 54,
+          text: 'Heading or Note',
+          color: activeColor === 'yellow' ? 'slate' : activeColor,
+          fontStyle: 'sans',
+          fontSize: 'lg',
+          zIndex: Date.now() % 100000,
+          updatedAt: Date.now(),
+        };
+        createBoardObject(newText);
+        setSelectedIds([id]);
+        setEditingId(id);
+        setActiveTool('select');
+        return true;
+      }
+
+      if (tool === 'stamp') {
+        const id = `stamp-${Date.now()}`;
+        const newStamp: StampObject = {
+          id,
+          type: 'stamp',
+          stampKind: activeStampKind,
+          x: Math.round(worldPt.x),
+          y: Math.round(worldPt.y),
+          scale: 1,
+          rotation: Math.round((Math.random() - 0.5) * 22),
+          authorName: currentUser.name,
+          authorColor: currentUser.color,
+          zIndex: Date.now() % 100000,
+          updatedAt: Date.now(),
+        };
+        createBoardObject(newStamp);
+        sendWs({
+          type: 'reaction:send',
+          emoji: activeStampKind,
+          x: worldPt.x,
+          y: worldPt.y,
+        });
+        setActiveTool('select');
+        return true;
+      }
+
+      if (tool === 'section') {
+        pushUndoSnapshot(objectsRef.current);
+        const id = `sec-${Date.now()}`;
+        const newSection: SectionObject = {
+          id,
+          type: 'section',
+          x: Math.round(worldPt.x),
+          y: Math.round(worldPt.y),
+          width: 420,
+          height: 320,
+          title: 'New Workshop Section',
+          color: activeColor,
+          zIndex: 1,
+          updatedAt: Date.now(),
+        };
+        createBoardObject(newSection, false);
+        setSelectedIds([id]);
+        setActiveTool('select');
+        return true;
+      }
+
+      if (tool === 'pen') {
+        pushUndoSnapshot(objectsRef.current);
+        const id = `path-${Date.now()}`;
+        const newPath: PathObject = {
+          id,
+          type: 'path',
+          points: [worldPt],
+          color: activeColor === 'yellow' && !isHighlighter ? 'slate' : activeColor,
+          strokeWidth: isHighlighter ? 22 : penStrokeWidth,
+          isHighlighter,
+          zIndex: Date.now() % 100000,
+          updatedAt: Date.now(),
+        };
+        setObjects((prev) => {
+          const next = [...prev, newPath];
+          objectsRef.current = next;
+          return next;
+        });
+        interactionRef.current = {
+          mode: 'drawing_path',
+          startScreen: { x: clientX, y: clientY },
+          startWorld: worldPt,
+          startViewport: viewportRef.current,
+          dragSnapshots: new Map(),
+          activePathId: id,
+        };
+        return true;
+      }
+
+      return false;
+    },
+    [
+      activeColor,
+      activeShapeKind,
+      activeStampKind,
+      createBoardObject,
+      currentUser.color,
+      currentUser.name,
+      isHighlighter,
+      penStrokeWidth,
+      pushUndoSnapshot,
+      sendWs,
+    ]
+  );
+
+  const handleTouchCreateRef = useRef(handleTouchCreateAtScreenPoint);
+  useEffect(() => {
+    handleTouchCreateRef.current = handleTouchCreateAtScreenPoint;
+  }, [handleTouchCreateAtScreenPoint]);
+
+  // Native non-passive touch listeners on canvas for smooth mobile pinch-to-zoom, pan & object dragging
   useEffect(() => {
     const canvasEl = canvasRef.current;
     if (!canvasEl) return;
@@ -1631,12 +1954,15 @@ export default function App() {
     let isPinching = false;
     let lastSingleTouch = { x: 0, y: 0 };
     let isSinglePanning = false;
+    let pendingInputDragObj: BoardObject | null = null;
+    let pendingInputStartScreen = { x: 0, y: 0 };
 
     const onTouchStart = (e: TouchEvent) => {
       setFollowingUserId(null);
 
       if (e.touches.length === 2) {
         if (e.cancelable) e.preventDefault();
+        pendingInputDragObj = null;
         const t1 = e.touches[0];
         const t2 = e.touches[1];
         lastPinchDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
@@ -1659,16 +1985,30 @@ export default function App() {
       } else if (e.touches.length === 1) {
         isPinching = false;
         lastPinchDist = 0;
+        pendingInputDragObj = null;
         const t = e.touches[0];
         lastSingleTouch = { x: t.clientX, y: t.clientY };
 
         const target = e.target as HTMLElement | null;
-        const isInput = target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable;
-        const isButton = target?.closest('button') !== null || target?.closest('a') !== null;
-        if (isInput || isButton) {
-          return;
+
+        // 1. Check explicit Drag Handle ("Move" bar on Text / Sticky) first!
+        const dragHandleEl = target?.closest('[data-drag-handle-id]') as HTMLElement | null;
+        if (dragHandleEl) {
+          const dragId = dragHandleEl.getAttribute('data-drag-handle-id');
+          const obj = dragId ? objectsMapRef.current.get(dragId) : null;
+          if (obj) {
+            if (e.cancelable) e.preventDefault();
+            if (document.activeElement instanceof HTMLElement) {
+              document.activeElement.blur();
+            }
+            setEditingId(null);
+            isSinglePanning = false;
+            startObjectDragRef.current(obj, { x: t.clientX, y: t.clientY }, false);
+            return;
+          }
         }
 
+        // 2. Check Corner Resize Handle
         const resizeEl = target?.closest('[data-resize-id]') as HTMLElement | null;
         if (resizeEl) {
           const resizeId = resizeEl.getAttribute('data-resize-id');
@@ -1681,11 +2021,43 @@ export default function App() {
           }
         }
 
+        // 3. Allow normal buttons & links to receive taps
+        const isButton = target?.closest('button') !== null || target?.closest('a') !== null;
+        if (isButton) {
+          return;
+        }
+
+        // 4. If touching inside an active <textarea> or <input> on a board object:
+        // Allow typing if it's a tap, OR automatically switch to dragging the text box if the user slides their finger!
+        const isInput =
+          target?.tagName === 'INPUT' ||
+          target?.tagName === 'TEXTAREA' ||
+          target?.isContentEditable;
         const objectEl = target?.closest('[data-object-id]') as HTMLElement | null;
+
+        if (isInput) {
+          if (objectEl && activeToolRef.current !== 'hand') {
+            const objId = objectEl.getAttribute('data-object-id');
+            const obj = objId ? objectsMapRef.current.get(objId) : null;
+            if (obj && !obj.locked) {
+              pendingInputDragObj = obj;
+              pendingInputStartScreen = { x: t.clientX, y: t.clientY };
+            }
+          }
+          return;
+        }
+
+        // 5. Touching any Board Object (Text, Sticky, Shape, Photo/Attachment, Stamp, Section)
         if (objectEl && activeToolRef.current !== 'hand' && !isSpacePressedRef.current) {
           const objId = objectEl.getAttribute('data-object-id');
           const obj = objId ? objectsMapRef.current.get(objId) : null;
           if (obj) {
+            if (editingIdRef.current && editingIdRef.current !== obj.id) {
+              if (document.activeElement instanceof HTMLElement) {
+                document.activeElement.blur();
+              }
+              setEditingId(null);
+            }
             if (activeToolRef.current === 'eraser') {
               if (e.cancelable) e.preventDefault();
               requestDeleteObjects([obj.id]);
@@ -1693,13 +2065,33 @@ export default function App() {
             }
             if (e.cancelable) e.preventDefault();
             isSinglePanning = false;
+            if (activeToolRef.current !== 'select') {
+              setActiveTool('select');
+            }
             startObjectDragRef.current(obj, { x: t.clientX, y: t.clientY }, false);
             return;
           }
         }
 
+        // 6. Touching empty canvas: close any active text editing & handle tool creation or panning
+        if (editingIdRef.current) {
+          if (document.activeElement instanceof HTMLElement) {
+            document.activeElement.blur();
+          }
+          setEditingId(null);
+        }
+
         const isCanvas =
           e.target === canvasEl || (e.target as HTMLElement).id === 'canvas' || !objectEl;
+
+        if (isCanvas && handleTouchCreateRef.current(t.clientX, t.clientY)) {
+          if (e.cancelable && activeToolRef.current === 'pen') {
+            e.preventDefault();
+          }
+          isSinglePanning = false;
+          return;
+        }
+
         if (
           activeToolRef.current === 'hand' ||
           isSpacePressedRef.current ||
@@ -1715,6 +2107,7 @@ export default function App() {
     const onTouchMove = (e: TouchEvent) => {
       if (e.touches.length === 2) {
         if (e.cancelable) e.preventDefault();
+        pendingInputDragObj = null;
         const t1 = e.touches[0];
         const t2 = e.touches[1];
         const currentDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
@@ -1755,10 +2148,29 @@ export default function App() {
           lastPinchCenter = currentCenter;
         }
       } else if (e.touches.length === 1) {
+        const t = e.touches[0];
+
+        // If user started touch on a <textarea> (written text) and slid finger > 7px, convert to object drag!
+        if (pendingInputDragObj && interactionRef.current.mode === 'none') {
+          const moveDist = Math.hypot(
+            t.clientX - pendingInputStartScreen.x,
+            t.clientY - pendingInputStartScreen.y
+          );
+          if (moveDist > 7) {
+            if (e.cancelable) e.preventDefault();
+            if (document.activeElement instanceof HTMLElement) {
+              document.activeElement.blur();
+            }
+            setEditingId(null);
+            const objToDrag = pendingInputDragObj;
+            pendingInputDragObj = null;
+            startObjectDragRef.current(objToDrag, pendingInputStartScreen, false);
+          }
+        }
+
         const state = interactionRef.current;
         if (state.mode === 'dragging_objects') {
           if (e.cancelable) e.preventDefault();
-          const t = e.touches[0];
           const rect = canvasEl.getBoundingClientRect();
           const worldPt = screenToWorld(t.clientX, t.clientY, viewportRef.current, rect);
           const dx = Math.round(worldPt.x - state.startWorld.x);
@@ -1791,7 +2203,6 @@ export default function App() {
 
         if (state.mode === 'resizing_object' && state.resizeTargetId && state.resizeStartBounds) {
           if (e.cancelable) e.preventDefault();
-          const t = e.touches[0];
           const rect = canvasEl.getBoundingClientRect();
           const worldPt = screenToWorld(t.clientX, t.clientY, viewportRef.current, rect);
           const orig = state.dragSnapshots.get(state.resizeTargetId);
@@ -1818,9 +2229,26 @@ export default function App() {
           return;
         }
 
+        if (state.mode === 'drawing_path' && state.activePathId) {
+          if (e.cancelable) e.preventDefault();
+          const rect = canvasEl.getBoundingClientRect();
+          const worldPt = screenToWorld(t.clientX, t.clientY, viewportRef.current, rect);
+          const target = objectsMapRef.current.get(state.activePathId);
+          if (target && target.type === 'path') {
+            const lastPt = target.points[target.points.length - 1];
+            if (!lastPt || Math.hypot(worldPt.x - lastPt.x, worldPt.y - lastPt.y) > 3) {
+              const updated: PathObject = {
+                ...target,
+                points: [...target.points, { x: Math.round(worldPt.x), y: Math.round(worldPt.y) }],
+              };
+              updateBoardObjectRef.current(updated, false);
+            }
+          }
+          return;
+        }
+
         if (isSinglePanning) {
           if (e.cancelable) e.preventDefault();
-          const t = e.touches[0];
           const dx = t.clientX - lastSingleTouch.x;
           const dy = t.clientY - lastSingleTouch.y;
           lastSingleTouch = { x: t.clientX, y: t.clientY };
@@ -1838,6 +2266,7 @@ export default function App() {
     };
 
     const onTouchEnd = (e: TouchEvent) => {
+      pendingInputDragObj = null;
       if (e.touches.length === 2) {
         const t1 = e.touches[0];
         const t2 = e.touches[1];
@@ -1858,9 +2287,17 @@ export default function App() {
         isPinching = false;
         lastPinchDist = 0;
         isSinglePanning = false;
+        const curState = interactionRef.current;
+        if (curState.mode === 'drawing_path' && curState.activePathId) {
+          const finishedPath = objectsMapRef.current.get(curState.activePathId);
+          if (finishedPath && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ type: 'object:create', object: finishedPath }));
+          }
+        }
         if (
-          interactionRef.current.mode === 'dragging_objects' ||
-          interactionRef.current.mode === 'resizing_object'
+          curState.mode === 'dragging_objects' ||
+          curState.mode === 'resizing_object' ||
+          curState.mode === 'drawing_path'
         ) {
           interactionRef.current = {
             mode: 'none',
@@ -1887,7 +2324,7 @@ export default function App() {
       window.removeEventListener('touchend', onTouchEnd);
       window.removeEventListener('touchcancel', onTouchEnd);
     };
-  }, []);
+  }, [isAuthenticated]);
 
   // Wheel Zoom & Two-Finger Pan on Infinite Canvas
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
@@ -2214,10 +2651,14 @@ export default function App() {
     if (e.touches.length !== 1) return;
     if (activeToolRef.current === 'hand' || isSpacePressedRef.current) return;
     const target = e.target as HTMLElement;
-    if (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.closest('button') || target?.closest('a')) {
+    if (
+      target?.tagName === 'INPUT' ||
+      target?.tagName === 'TEXTAREA' ||
+      target?.closest('button') ||
+      target?.closest('a')
+    ) {
       return;
     }
-    e.stopPropagation();
     const t = e.touches[0];
     startObjectDrag(obj, { x: t.clientX, y: t.clientY }, false);
   };
@@ -2231,7 +2672,6 @@ export default function App() {
   // Start Object Corner Resize via Mobile Touch
   const handleStartResizeTouch = (e: React.TouchEvent, obj: BoardObject) => {
     if (e.touches.length !== 1) return;
-    e.stopPropagation();
     const t = e.touches[0];
     startObjectResize(obj, { x: t.clientX, y: t.clientY });
   };
@@ -2428,10 +2868,15 @@ export default function App() {
     (newProjId: string) => {
       if (newProjId === activeProjectId) return;
 
-      // 1. Immediately sync current page canvas state into workspace
+      const now = Date.now();
+      const curObjects = objectsRef.current;
+      const curViewport = viewportRef.current;
+
+      // 1. Immediately sync current page canvas state into workspace & switch activeProjectId
       setWorkspace((prevWs) => {
         const updated: WorkspaceState = {
           ...prevWs,
+          activeProjectId: newProjId,
           projects: prevWs.projects.map((p) => {
             if (p.id !== activeProjectId) return p;
             return {
@@ -2439,19 +2884,20 @@ export default function App() {
               activePageId,
               pages: p.pages.map((pg) =>
                 pg.id === activePageId
-                  ? { ...pg, objects, viewport, updatedAt: Date.now() }
+                  ? { ...pg, objects: curObjects, viewport: curViewport, updatedAt: now }
                   : pg
               ),
-              updatedAt: Date.now(),
+              updatedAt: now,
             };
           }),
         };
-        saveWorkspaceToStorage(updated);
+        workspaceRef.current = updated;
+        saveWorkspaceToStorage(updated, true);
         return updated;
       });
 
       // 2. Resolve destination project & page
-      const targetProj = workspace.projects.find((p) => p.id === newProjId);
+      const targetProj = workspaceRef.current.projects.find((p) => p.id === newProjId);
       if (!targetProj) return;
 
       const targetPageId =
@@ -2482,21 +2928,41 @@ export default function App() {
       url.searchParams.set('page', targetPageId);
       window.history.pushState({}, '', url.toString());
     },
-    [activeProjectId, activePageId, workspace.projects]
+    [activeProjectId, activePageId]
   );
 
   const handleCreateProject = useCallback(
     (customName?: string) => {
-      const name = customName?.trim() || `Project ${workspace.projects.length + 1}`;
+      const curWs = workspaceRef.current;
+      const name = customName?.trim() || `Project ${curWs.projects.length + 1}`;
       const newProj = createNewProject(name);
+      const now = Date.now();
+      const curObjects = objectsRef.current;
+      const curViewport = viewportRef.current;
 
-      const updatedWs: WorkspaceState = {
-        ...workspace,
-        activeProjectId: newProj.id,
-        projects: [...workspace.projects, newProj],
-      };
-      setWorkspace(updatedWs);
-      saveWorkspaceToStorage(updatedWs);
+      setWorkspace((prevWs) => {
+        const savedExisting = prevWs.projects.map((p) => {
+          if (p.id !== activeProjectId) return p;
+          return {
+            ...p,
+            activePageId,
+            pages: p.pages.map((pg) =>
+              pg.id === activePageId
+                ? { ...pg, objects: curObjects, viewport: curViewport, updatedAt: now }
+                : pg
+            ),
+            updatedAt: now,
+          };
+        });
+        const updatedWs: WorkspaceState = {
+          ...prevWs,
+          activeProjectId: newProj.id,
+          projects: [...savedExisting, newProj],
+        };
+        workspaceRef.current = updatedWs;
+        saveWorkspaceToStorage(updatedWs, true);
+        return updatedWs;
+      });
 
       setActiveProjectId(newProj.id);
       setActivePageId(newProj.activePageId);
@@ -2515,21 +2981,23 @@ export default function App() {
       url.searchParams.set('page', newProj.activePageId);
       window.history.pushState({}, '', url.toString());
     },
-    [workspace]
+    [activeProjectId, activePageId]
   );
 
   const handleRenameProject = useCallback(
     (projectId: string, newName: string) => {
       const clean = newName.trim();
       if (!clean) return;
+      const now = Date.now();
       setWorkspace((prevWs) => {
         const updated: WorkspaceState = {
           ...prevWs,
           projects: prevWs.projects.map((p) =>
-            p.id === projectId ? { ...p, name: clean, updatedAt: Date.now() } : p
+            p.id === projectId ? { ...p, name: clean, updatedAt: now } : p
           ),
         };
-        saveWorkspaceToStorage(updated);
+        workspaceRef.current = updated;
+        saveWorkspaceToStorage(updated, true);
         return updated;
       });
     },
@@ -2590,6 +3058,10 @@ export default function App() {
     (newPageId: string) => {
       if (newPageId === activePageId) return;
 
+      const now = Date.now();
+      const curObjects = objectsRef.current;
+      const curViewport = viewportRef.current;
+
       // 1. Save current page state
       setWorkspace((prevWs) => {
         const updated: WorkspaceState = {
@@ -2601,14 +3073,15 @@ export default function App() {
               activePageId: newPageId,
               pages: p.pages.map((pg) =>
                 pg.id === activePageId
-                  ? { ...pg, objects: objectsRef.current, viewport: viewportRef.current, updatedAt: Date.now() }
+                  ? { ...pg, objects: curObjects, viewport: curViewport, updatedAt: now }
                   : pg
               ),
-              updatedAt: Date.now(),
+              updatedAt: now,
             };
           }),
         };
-        saveWorkspaceToStorage(updated);
+        workspaceRef.current = updated;
+        saveWorkspaceToStorage(updated, true);
         return updated;
       });
 
@@ -2641,6 +3114,9 @@ export default function App() {
     (customName?: string) => {
       const pageName = customName?.trim() || `Page ${currentProject.pages.length + 1}`;
       const newPage = createBlankPage(pageName);
+      const now = Date.now();
+      const curObjects = objectsRef.current;
+      const curViewport = viewportRef.current;
 
       setWorkspace((prevWs) => {
         const updated: WorkspaceState = {
@@ -2649,18 +3125,19 @@ export default function App() {
             if (p.id !== activeProjectId) return p;
             const updatedPages = p.pages.map((pg) =>
               pg.id === activePageId
-                ? { ...pg, objects: objectsRef.current, viewport: viewportRef.current, updatedAt: Date.now() }
+                ? { ...pg, objects: curObjects, viewport: curViewport, updatedAt: now }
                 : pg
             );
             return {
               ...p,
               activePageId: newPage.id,
               pages: [...updatedPages, newPage],
-              updatedAt: Date.now(),
+              updatedAt: now,
             };
           }),
         };
-        saveWorkspaceToStorage(updated);
+        workspaceRef.current = updated;
+        saveWorkspaceToStorage(updated, true);
         return updated;
       });
 
@@ -2687,6 +3164,7 @@ export default function App() {
     (pageId: string, newName: string) => {
       const clean = newName.trim();
       if (!clean) return;
+      const now = Date.now();
 
       if (pageId === activePageId) {
         setBoardTitle(clean);
@@ -2702,14 +3180,15 @@ export default function App() {
               ...p,
               pages: p.pages.map((pg) =>
                 pg.id === pageId
-                  ? { ...pg, name: clean, updatedAt: Date.now() }
+                  ? { ...pg, name: clean, updatedAt: now }
                   : pg
               ),
-              updatedAt: Date.now(),
+              updatedAt: now,
             };
           }),
         };
-        saveWorkspaceToStorage(updated);
+        workspaceRef.current = updated;
+        saveWorkspaceToStorage(updated, true);
         return updated;
       });
     },
@@ -2773,6 +3252,25 @@ export default function App() {
   const handleChangeRoom = (newRoomId: string) => {
     handleSelectPage(newRoomId);
   };
+
+  // Go to Main Project & Page 1 (Home) and reset/fit viewport
+  const handleGoToHomePage = useCallback(() => {
+    const curWs = workspaceRef.current;
+    const firstProj = curWs.projects[0];
+    if (!firstProj) return;
+    const firstPage = firstProj.pages[0];
+    if (!firstPage) return;
+
+    if (firstProj.id !== activeProjectId) {
+      handleSelectProject(firstProj.id);
+    }
+    if (firstPage.id !== activePageId) {
+      handleSelectPage(firstPage.id);
+    }
+    setTimeout(() => {
+      handleFitToContent();
+    }, 60);
+  }, [activePageId, activeProjectId, handleFitToContent, handleSelectPage, handleSelectProject]);
 
   // Export Board as Crisp Vector SVG File
   const handleExportSvg = () => {
@@ -2941,6 +3439,8 @@ export default function App() {
         onAttachFiles={(files) => handleAttachFiles(files)}
         onExportWorkspaceBackup={handleExportWorkspaceBackup}
         onImportWorkspaceBackup={handleImportWorkspaceBackup}
+        onSaveWorkspaceNow={handleSaveWorkspaceNow}
+        onGoToHomePage={handleGoToHomePage}
         onLockWorkspace={() => {
           localStorage.removeItem('cj_auth_token');
           sessionStorage.removeItem('cj_auth_token');
@@ -3412,24 +3912,46 @@ export default function App() {
                       : ''
                   }`}
                 >
-                  {/* Floating Edit Button on mobile when selected */}
-                  {isSelected && !obj.locked && !isEditing && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setEditingId(obj.id);
-                      }}
-                      onTouchStart={(e) => {
-                        e.stopPropagation();
-                        setEditingId(obj.id);
-                      }}
-                      className="absolute -top-7 left-0 px-2 py-0.5 bg-indigo-600 text-white rounded text-[11px] font-semibold flex items-center gap-1 shadow-md hover:bg-indigo-700 active:scale-95 transition-all cursor-pointer z-30"
-                      title="Tap to edit note"
-                    >
-                      <Edit2 className="w-3 h-3" />
-                      <span>Edit</span>
-                    </button>
+                  {/* Floating Drag Handle + Edit/Done Bar on mobile/desktop when selected or editing */}
+                  {(isSelected || isEditing) && !obj.locked && (
+                    <div className="absolute -top-9 left-0 flex items-center gap-1.5 z-30 select-none">
+                      <div
+                        data-drag-handle-id={obj.id}
+                        onMouseDown={(e) => handleObjectMouseDown(e, obj)}
+                        className="px-2.5 py-1 bg-slate-900 text-white rounded-md text-[11px] font-bold flex items-center gap-1 shadow-md cursor-grab active:cursor-grabbing touch-none"
+                        title="Hold and drag with finger or mouse to move"
+                      >
+                        <Move className="w-3 h-3" />
+                        <span>Move</span>
+                      </div>
+                      {isEditing ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingId(null);
+                          }}
+                          className="px-2.5 py-1 bg-emerald-600 text-white rounded-md text-[11px] font-bold flex items-center gap-1 shadow-md hover:bg-emerald-700 active:scale-95 transition-all cursor-pointer"
+                          title="Finish editing text"
+                        >
+                          <Check className="w-3 h-3" />
+                          <span>Done</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingId(obj.id);
+                          }}
+                          className="px-2.5 py-1 bg-indigo-600 text-white rounded-md text-[11px] font-bold flex items-center gap-1 shadow-md hover:bg-indigo-700 active:scale-95 transition-all cursor-pointer"
+                          title="Tap to edit note"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                          <span>Edit</span>
+                        </button>
+                      )}
+                    </div>
                   )}
 
                   <div className="flex-1 min-h-0 flex flex-col">
@@ -3729,24 +4251,46 @@ export default function App() {
                       : 'hover:bg-black/3'
                   }`}
                 >
-                  {/* Floating Mobile/Touch Edit Button when selected */}
-                  {isSelected && !obj.locked && !isEditing && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setEditingId(obj.id);
-                      }}
-                      onTouchStart={(e) => {
-                        e.stopPropagation();
-                        setEditingId(obj.id);
-                      }}
-                      className="absolute -top-7 left-0 px-2 py-0.5 bg-indigo-600 text-white rounded text-[11px] font-semibold flex items-center gap-1 shadow-md hover:bg-indigo-700 active:scale-95 transition-all cursor-pointer z-30 select-none"
-                      title="Tap to edit text"
-                    >
-                      <Edit2 className="w-3 h-3" />
-                      <span>Edit</span>
-                    </button>
+                  {/* Floating Mobile/Touch Move Handle + Edit/Done Button when selected or editing */}
+                  {(isSelected || isEditing) && !obj.locked && (
+                    <div className="absolute -top-9 left-0 flex items-center gap-1.5 z-30 select-none">
+                      <div
+                        data-drag-handle-id={obj.id}
+                        onMouseDown={(e) => handleObjectMouseDown(e, obj)}
+                        className="px-2.5 py-1 bg-slate-900 text-white rounded-md text-[11px] font-bold flex items-center gap-1 shadow-md cursor-grab active:cursor-grabbing touch-none"
+                        title="Hold and drag with finger or mouse to move text"
+                      >
+                        <Move className="w-3 h-3" />
+                        <span>Move</span>
+                      </div>
+                      {isEditing ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingId(null);
+                          }}
+                          className="px-2.5 py-1 bg-emerald-600 text-white rounded-md text-[11px] font-bold flex items-center gap-1 shadow-md hover:bg-emerald-700 active:scale-95 transition-all cursor-pointer"
+                          title="Finish typing so you can drag text"
+                        >
+                          <Check className="w-3 h-3" />
+                          <span>Done</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingId(obj.id);
+                          }}
+                          className="px-2.5 py-1 bg-indigo-600 text-white rounded-md text-[11px] font-bold flex items-center gap-1 shadow-md hover:bg-indigo-700 active:scale-95 transition-all cursor-pointer"
+                          title="Tap to edit text"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                          <span>Edit Text</span>
+                        </button>
+                      )}
+                    </div>
                   )}
 
                   {isEditing ? (

@@ -24,6 +24,8 @@ import {
   Check,
   ChevronDown,
   SlidersHorizontal,
+  Home,
+  Save,
 } from 'lucide-react';
 import {
   BoardProject,
@@ -85,6 +87,8 @@ export interface TopBarProps {
   onLockWorkspace?: () => void;
   onExportWorkspaceBackup?: () => void;
   onImportWorkspaceBackup?: (file: File) => void;
+  onSaveWorkspaceNow?: () => void;
+  onGoToHomePage?: () => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -132,6 +136,8 @@ export const TopBar: React.FC<TopBarProps> = ({
   onLockWorkspace,
   onExportWorkspaceBackup,
   onImportWorkspaceBackup,
+  onSaveWorkspaceNow,
+  onGoToHomePage,
 }) => {
   const restoreFileInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -140,6 +146,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [pageMenuOpen, setPageMenuOpen] = useState(false);
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
+  const [justSavedFlash, setJustSavedFlash] = useState(false);
 
   // Renaming state
   const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null);
@@ -219,13 +226,9 @@ export const TopBar: React.FC<TopBarProps> = ({
       const target = event.target as Node;
       if (projectMenuRef.current && !projectMenuRef.current.contains(target)) {
         setProjectMenuOpen(false);
-        setRenamingProjectId(null);
-        setEditingCurrentProjectInline(false);
       }
       if (pageMenuRef.current && !pageMenuRef.current.contains(target)) {
         setPageMenuOpen(false);
-        setRenamingPageId(null);
-        setEditingCurrentPageInline(false);
       }
       if (toolsMenuRef.current && !toolsMenuRef.current.contains(target)) {
         setToolsMenuOpen(false);
@@ -269,8 +272,33 @@ export const TopBar: React.FC<TopBarProps> = ({
     }
   };
 
+  const handleTriggerSaveNow = () => {
+    if (onSaveWorkspaceNow) {
+      onSaveWorkspaceNow();
+    }
+    setJustSavedFlash(true);
+    window.setTimeout(() => setJustSavedFlash(false), 1800);
+  };
+
+  const handleGoHome = () => {
+    setProjectMenuOpen(false);
+    setPageMenuOpen(false);
+    setToolsMenuOpen(false);
+    if (onGoToHomePage) {
+      onGoToHomePage();
+    } else if (projects.length > 0) {
+      const firstProj = projects[0];
+      if (firstProj.id !== activeProjectId) {
+        onSelectProject(firstProj.id);
+      } else if (firstProj.pages.length > 0 && firstProj.pages[0].id !== activePageId) {
+        onSelectPage(firstProj.pages[0].id);
+      }
+      onFitToContent();
+    }
+  };
+
   return (
-    <header className="h-14 border-b border-slate-200/90 bg-white/95 backdrop-blur-md px-3 sm:px-4 flex items-center justify-between z-30 shrink-0 select-none shadow-xs w-full flex-nowrap overflow-hidden">
+    <header className="h-14 border-b border-slate-200/90 bg-white/95 backdrop-blur-md px-2 sm:px-4 flex items-center justify-between z-50 relative shrink-0 select-none shadow-xs w-full flex-nowrap overflow-visible">
       {/* Hidden File Input for Attachments */}
       <input
         ref={fileInputRef}
@@ -304,22 +332,17 @@ export const TopBar: React.FC<TopBarProps> = ({
       {/* ========================================================= */}
       {/* ZONE 1 (LEFT): Workspace Identity & Page Navigation       */}
       {/* ========================================================= */}
-      <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 shrink-0">
-        {/* Brand Logo */}
-        <a
-          href="#canvas"
-          onClick={(e) => {
-            e.preventDefault();
-            onFitToContent();
-          }}
-          className="text-sm sm:text-base font-extrabold tracking-tight text-slate-900 whitespace-nowrap shrink-0 hover:text-indigo-600 transition-colors flex items-center gap-1.5"
-          title="CanvasJam - Click to center canvas"
+      <div className="flex items-center gap-1 sm:gap-2 min-w-0 shrink-0">
+        {/* Brand Logo + Home / Main Page Quick Button */}
+        <button
+          type="button"
+          onClick={handleGoHome}
+          className="px-2 py-1 rounded-md bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs flex items-center gap-1 shrink-0 transition-colors cursor-pointer border border-indigo-200/80"
+          title="Go to Main Page / Home & Center Canvas"
         >
-          <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 inline-block shadow-xs"></span>
-          <span>CanvasJam</span>
-        </a>
-
-        <span className="text-slate-300 font-light select-none text-xs" aria-hidden="true">/</span>
+          <Home className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+          <span className="hidden sm:inline">Home</span>
+        </button>
 
         {/* Project Switcher Dropdown & Inline Direct Rename */}
         <div className="relative flex items-center" ref={projectMenuRef}>
@@ -338,12 +361,16 @@ export const TopBar: React.FC<TopBarProps> = ({
                   }
                 }}
                 autoFocus
-                className="text-xs font-semibold text-slate-900 bg-white border border-indigo-500 rounded px-2 py-0.5 focus:outline-none w-24 sm:w-36"
+                className="text-xs font-semibold text-slate-900 bg-white border-2 border-indigo-500 rounded px-2 py-1 focus:outline-none w-28 sm:w-40"
               />
               <button
                 type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  handleFinishInlineProjectRename();
+                }}
                 onClick={handleFinishInlineProjectRename}
-                className="p-1 text-emerald-600 hover:bg-emerald-50 rounded cursor-pointer"
+                className="p-1.5 text-white bg-emerald-600 hover:bg-emerald-700 rounded cursor-pointer"
                 title="Save project name"
               >
                 <Check className="w-3.5 h-3.5" />
@@ -358,12 +385,12 @@ export const TopBar: React.FC<TopBarProps> = ({
                   setPageMenuOpen(false);
                   setToolsMenuOpen(false);
                 }}
-                className="flex items-center gap-1.5 px-2 py-1 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200/80 rounded-l-md border-y border-l border-slate-200/80 transition-colors max-w-[100px] sm:max-w-[140px] truncate cursor-pointer"
-                title={`Project: ${activeProject.name} (Click to switch or manage projects)`}
+                className="flex items-center gap-1 px-2 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200/80 rounded-l-md border-y border-l border-slate-200/80 transition-colors max-w-[92px] sm:max-w-[140px] truncate cursor-pointer"
+                title={`Project: ${activeProject.name} (Tap to switch, create, or rename projects)`}
               >
                 <Folder className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
                 <span className="truncate">{activeProject.name}</span>
-                <ChevronDown className="w-3 h-3 text-slate-400 shrink-0" />
+                <ChevronDown className="w-3 h-3 text-slate-500 shrink-0" />
               </button>
               <button
                 type="button"
@@ -371,61 +398,83 @@ export const TopBar: React.FC<TopBarProps> = ({
                   setInlineProjectTitleDraft(activeProject.name);
                   setEditingCurrentProjectInline(true);
                 }}
-                className="px-1.5 py-1 text-slate-400 hover:text-indigo-600 bg-slate-100 hover:bg-slate-200/80 rounded-r-md border border-slate-200/80 border-l-slate-200 transition-colors cursor-pointer"
-                title="Rename this project"
+                className="px-1.5 py-1.5 text-slate-500 hover:text-indigo-600 bg-slate-100 hover:bg-slate-200/80 rounded-r-md border border-slate-200/80 border-l-slate-200 transition-colors cursor-pointer"
+                title="Rename current project"
               >
                 <Edit2 className="w-3 h-3" />
               </button>
             </div>
           )}
 
-          {/* Project Menu Popover */}
+          {/* Project Menu Popover (Full-width fixed below TopBar on mobile so NEVER clipped) */}
           {projectMenuOpen && (
-            <div className="absolute left-0 top-full mt-1.5 w-72 bg-white rounded-lg shadow-xl border border-slate-200 py-1.5 z-50 animate-in fade-in zoom-in-95 duration-100">
-              <div className="px-3 py-1 flex items-center justify-between border-b border-slate-100 mb-1">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+            <div className="fixed left-2 right-2 top-15 sm:absolute sm:left-0 sm:right-auto sm:top-full sm:mt-1.5 sm:w-80 bg-white rounded-xl shadow-2xl border border-slate-200 py-2 z-[100] max-h-[82vh] flex flex-col">
+              <div className="px-3 py-1.5 flex items-center justify-between border-b border-slate-100">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
                   Projects ({projects.length})
                 </span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={handleGoHome}
+                    className="px-2 py-1 text-[11px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-md flex items-center gap-1 cursor-pointer"
+                  >
+                    <Home className="w-3 h-3" />
+                    <span>Main Page</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setProjectMenuOpen(false)}
+                    className="p-1 text-slate-400 hover:text-slate-700 rounded cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
 
               {/* Create New Project with custom name */}
-              <div className="px-3 py-2 border-b border-slate-100 bg-slate-50/70">
-                <div className="text-[11px] font-semibold text-slate-600 mb-1">Create New Project</div>
+              <div className="px-3 py-2.5 border-b border-slate-100 bg-slate-50">
+                <div className="text-xs font-bold text-slate-700 mb-1.5">Create New Project</div>
                 <div className="flex items-center gap-1.5">
                   <input
                     type="text"
-                    placeholder="Project name..."
+                    placeholder="Enter new project name..."
                     value={newProjectNameDraft}
                     onChange={(e) => setNewProjectNameDraft(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') handleCreateNamedProject();
                     }}
-                    className="flex-1 text-xs px-2 py-1 border border-slate-300 rounded bg-white text-slate-800 focus:outline-none focus:border-indigo-500"
+                    className="flex-1 text-xs px-2.5 py-1.5 border border-slate-300 rounded-md bg-white text-slate-900 focus:outline-none focus:border-indigo-500"
                   />
                   <button
                     type="button"
                     onClick={handleCreateNamedProject}
-                    className="px-2.5 py-1 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded transition-colors flex items-center gap-1 cursor-pointer shrink-0"
-                    title="Create project"
+                    className="px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-md transition-colors flex items-center gap-1 cursor-pointer shrink-0 shadow-xs"
                   >
-                    <Plus className="w-3 h-3" />
-                    Create
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Create</span>
                   </button>
                 </div>
               </div>
 
-              <div className="max-h-60 overflow-y-auto py-0.5">
+              <div className="overflow-y-auto py-1 max-h-64 divide-y divide-slate-50">
                 {projects.map((proj) => {
                   const isActive = proj.id === activeProjectId;
                   const isRenaming = renamingProjectId === proj.id;
 
                   if (isRenaming) {
                     return (
-                      <div key={proj.id} className="px-2 py-1 flex items-center gap-1.5">
+                      <div key={proj.id} className="px-3 py-2 flex items-center gap-1.5 bg-indigo-50/50">
                         <input
                           type="text"
                           value={renamingProjectName}
                           onChange={(e) => setRenamingProjectName(e.target.value)}
+                          onBlur={() => {
+                            if (renamingProjectName.trim() && renamingProjectName.trim() !== proj.name) {
+                              onRenameProject(proj.id, renamingProjectName.trim());
+                            }
+                            setRenamingProjectId(null);
+                          }}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') {
                               if (renamingProjectName.trim()) {
@@ -437,24 +486,32 @@ export const TopBar: React.FC<TopBarProps> = ({
                             }
                           }}
                           autoFocus
-                          className="w-full text-xs px-2 py-1 border border-indigo-500 rounded bg-white text-slate-800 focus:outline-none"
+                          className="flex-1 text-xs px-2.5 py-1.5 border-2 border-indigo-500 rounded-md bg-white text-slate-900 focus:outline-none"
                         />
                         <button
                           type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            if (renamingProjectName.trim()) {
+                              onRenameProject(proj.id, renamingProjectName.trim());
+                            }
+                            setRenamingProjectId(null);
+                          }}
                           onClick={() => {
                             if (renamingProjectName.trim()) {
                               onRenameProject(proj.id, renamingProjectName.trim());
                             }
                             setRenamingProjectId(null);
                           }}
-                          className="p-1 text-emerald-600 hover:bg-emerald-50 rounded cursor-pointer"
+                          className="px-2.5 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-md cursor-pointer flex items-center gap-1"
                         >
                           <Check className="w-3.5 h-3.5" />
+                          <span>Save</span>
                         </button>
                         <button
                           type="button"
                           onClick={() => setRenamingProjectId(null)}
-                          className="p-1 text-slate-400 hover:bg-slate-100 rounded cursor-pointer"
+                          className="p-1.5 text-slate-500 hover:bg-slate-200 rounded-md cursor-pointer"
                         >
                           <X className="w-3.5 h-3.5" />
                         </button>
@@ -465,9 +522,9 @@ export const TopBar: React.FC<TopBarProps> = ({
                   return (
                     <div
                       key={proj.id}
-                      className={`group px-2.5 py-1.5 mx-1 rounded-md flex items-center justify-between text-xs transition-colors cursor-pointer ${
+                      className={`px-3 py-2 mx-1 my-0.5 rounded-lg flex items-center justify-between text-xs transition-colors cursor-pointer ${
                         isActive
-                          ? 'bg-indigo-50 text-indigo-900 font-medium'
+                          ? 'bg-indigo-50 text-indigo-900 font-bold border border-indigo-200/60'
                           : 'text-slate-700 hover:bg-slate-100'
                       }`}
                       onClick={() => {
@@ -475,20 +532,20 @@ export const TopBar: React.FC<TopBarProps> = ({
                         setProjectMenuOpen(false);
                       }}
                     >
-                      <div className="flex items-center gap-2 truncate min-w-0">
+                      <div className="flex items-center gap-2 truncate min-w-0 flex-1">
                         <Folder
-                          className={`w-3.5 h-3.5 shrink-0 ${
+                          className={`w-4 h-4 shrink-0 ${
                             isActive ? 'text-indigo-600' : 'text-slate-400'
                           }`}
                         />
                         <span className="truncate">{proj.name}</span>
-                        <span className="text-[10px] text-slate-400 font-mono">
+                        <span className="text-[10px] text-slate-400 font-mono shrink-0">
                           ({proj.pages.length}p)
                         </span>
                       </div>
 
                       <div
-                        className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
+                        className="flex items-center gap-1 shrink-0 ml-2"
                         onClick={(e) => e.stopPropagation()}
                       >
                         <button
@@ -497,18 +554,20 @@ export const TopBar: React.FC<TopBarProps> = ({
                             setRenamingProjectId(proj.id);
                             setRenamingProjectName(proj.name);
                           }}
-                          className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded transition-colors cursor-pointer"
+                          className="px-2 py-1 text-[11px] font-medium text-indigo-700 bg-white hover:bg-indigo-50 border border-slate-200 rounded-md transition-colors cursor-pointer flex items-center gap-1"
                           title="Rename project"
                         >
-                          <Edit2 className="w-3.5 h-3.5" />
+                          <Edit2 className="w-3 h-3" />
+                          <span>Rename</span>
                         </button>
                         {projects.length > 1 && (
                           <button
                             type="button"
                             onClick={() => {
                               onDeleteProject(proj.id);
+                              setProjectMenuOpen(false);
                             }}
-                            className="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-slate-100 rounded transition-colors cursor-pointer"
+                            className="p-1.5 text-rose-600 hover:bg-rose-50 border border-slate-200 rounded-md transition-colors cursor-pointer"
                             title="Delete project"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -542,12 +601,16 @@ export const TopBar: React.FC<TopBarProps> = ({
                   }
                 }}
                 autoFocus
-                className="text-xs font-semibold text-slate-900 bg-white border border-indigo-500 rounded px-2 py-0.5 focus:outline-none w-24 sm:w-36"
+                className="text-xs font-semibold text-slate-900 bg-white border-2 border-indigo-500 rounded px-2 py-1 focus:outline-none w-28 sm:w-40"
               />
               <button
                 type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  handleFinishInlinePageRename();
+                }}
                 onClick={handleFinishInlinePageRename}
-                className="p-1 text-emerald-600 hover:bg-emerald-50 rounded cursor-pointer"
+                className="p-1.5 text-white bg-emerald-600 hover:bg-emerald-700 rounded cursor-pointer"
                 title="Save page name"
               >
                 <Check className="w-3.5 h-3.5" />
@@ -562,18 +625,21 @@ export const TopBar: React.FC<TopBarProps> = ({
                   setProjectMenuOpen(false);
                   setToolsMenuOpen(false);
                 }}
-                className="flex items-center gap-1.5 px-2 py-1 text-xs font-semibold text-slate-800 hover:text-indigo-600 bg-slate-100 hover:bg-slate-200/80 rounded-l-md border-y border-l border-slate-200/80 transition-colors max-w-[90px] sm:max-w-[130px] truncate cursor-pointer"
-                title={`Page: ${activePage.name} (Click to open page menu)`}
+                className="flex items-center gap-1 px-2 py-1.5 text-xs font-semibold text-slate-800 hover:text-indigo-600 bg-slate-100 hover:bg-slate-200/80 rounded-l-md border-y border-l border-slate-200/80 transition-colors max-w-[92px] sm:max-w-[135px] truncate cursor-pointer"
+                title={`Page: ${activePage.name} (Tap to switch, add, or rename pages)`}
               >
                 <Layers className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
                 <span className="truncate">{activePage.name}</span>
-                <ChevronDown className="w-3 h-3 text-slate-400 shrink-0" />
+                <ChevronDown className="w-3 h-3 text-slate-500 shrink-0" />
               </button>
               <button
                 type="button"
-                onClick={() => setEditingCurrentPageInline(true)}
-                className="px-1.5 py-1 text-slate-400 hover:text-indigo-600 bg-slate-100 hover:bg-slate-200/80 rounded-r-md border border-slate-200/80 border-l-slate-200 transition-colors cursor-pointer"
-                title="Rename this page"
+                onClick={() => {
+                  setInlinePageTitleDraft(activePage.name);
+                  setEditingCurrentPageInline(true);
+                }}
+                className="px-1.5 py-1.5 text-slate-500 hover:text-indigo-600 bg-slate-100 hover:bg-slate-200/80 rounded-r-md border border-slate-200/80 border-l-slate-200 transition-colors cursor-pointer"
+                title="Rename current page"
               >
                 <Edit2 className="w-3 h-3" />
               </button>
@@ -584,60 +650,87 @@ export const TopBar: React.FC<TopBarProps> = ({
           <button
             type="button"
             onClick={() => onCreatePage()}
-            className="flex items-center gap-1 px-1.5 py-1 text-xs font-medium text-indigo-600 hover:text-indigo-700 bg-indigo-50/80 hover:bg-indigo-100 rounded-md border border-indigo-100 transition-colors whitespace-nowrap cursor-pointer ml-1 shrink-0"
+            className="flex items-center gap-1 px-2 py-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-md border border-indigo-200/80 transition-colors whitespace-nowrap cursor-pointer ml-1 shrink-0"
             title="Create a new blank page in this project"
           >
-            <Plus className="w-3 h-3" />
-            <span className="hidden xl:inline text-[11px]">Page</span>
+            <Plus className="w-3.5 h-3.5" />
+            <span className="hidden lg:inline text-[11px]">Page</span>
           </button>
 
-          {/* Page Menu Popover */}
+          {/* Page Menu Popover (Full-width fixed below TopBar on mobile so NEVER clipped) */}
           {pageMenuOpen && (
-            <div className="absolute left-0 top-full mt-1.5 w-72 bg-white rounded-lg shadow-xl border border-slate-200 py-1.5 z-50 animate-in fade-in zoom-in-95 duration-100">
-              <div className="px-3 py-1 flex items-center justify-between border-b border-slate-100 mb-1">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                  Pages ({activeProject.pages.length})
+            <div className="fixed left-2 right-2 top-15 sm:absolute sm:left-0 sm:right-auto sm:top-full sm:mt-1.5 sm:w-80 bg-white rounded-xl shadow-2xl border border-slate-200 py-2 z-[100] max-h-[82vh] flex flex-col">
+              <div className="px-3 py-1.5 flex items-center justify-between border-b border-slate-100">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                  Pages in {activeProject.name} ({activeProject.pages.length})
                 </span>
+                <div className="flex items-center gap-1.5">
+                  {activeProject.pages.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSelectPage(activeProject.pages[0].id);
+                        setPageMenuOpen(false);
+                      }}
+                      className="px-2 py-1 text-[11px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-md flex items-center gap-1 cursor-pointer"
+                    >
+                      <Home className="w-3 h-3" />
+                      <span>Page 1</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setPageMenuOpen(false)}
+                    className="p-1 text-slate-400 hover:text-slate-700 rounded cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
 
               {/* Create New Page with custom name */}
-              <div className="px-3 py-2 border-b border-slate-100 bg-slate-50/70">
-                <div className="text-[11px] font-semibold text-slate-600 mb-1">Add New Page</div>
+              <div className="px-3 py-2.5 border-b border-slate-100 bg-slate-50">
+                <div className="text-xs font-bold text-slate-700 mb-1.5">Add New Page</div>
                 <div className="flex items-center gap-1.5">
                   <input
                     type="text"
-                    placeholder="Page name..."
+                    placeholder="Enter new page name..."
                     value={newPageNameDraft}
                     onChange={(e) => setNewPageNameDraft(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') handleCreateNamedPage();
                     }}
-                    className="flex-1 text-xs px-2 py-1 border border-slate-300 rounded bg-white text-slate-800 focus:outline-none focus:border-indigo-500"
+                    className="flex-1 text-xs px-2.5 py-1.5 border border-slate-300 rounded-md bg-white text-slate-900 focus:outline-none focus:border-indigo-500"
                   />
                   <button
                     type="button"
                     onClick={handleCreateNamedPage}
-                    className="px-2.5 py-1 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded transition-colors flex items-center gap-1 cursor-pointer shrink-0"
-                    title="Add page"
+                    className="px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-md transition-colors flex items-center gap-1 cursor-pointer shrink-0 shadow-xs"
                   >
-                    <Plus className="w-3 h-3" />
-                    Create
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add</span>
                   </button>
                 </div>
               </div>
 
-              <div className="max-h-60 overflow-y-auto py-0.5">
-                {activeProject.pages.map((pg) => {
+              <div className="overflow-y-auto py-1 max-h-64 divide-y divide-slate-50">
+                {activeProject.pages.map((pg, idx) => {
                   const isActive = pg.id === activePageId;
                   const isRenaming = renamingPageId === pg.id;
 
                   if (isRenaming) {
                     return (
-                      <div key={pg.id} className="px-2 py-1 flex items-center gap-1.5">
+                      <div key={pg.id} className="px-3 py-2 flex items-center gap-1.5 bg-indigo-50/50">
                         <input
                           type="text"
                           value={renamingPageName}
                           onChange={(e) => setRenamingPageName(e.target.value)}
+                          onBlur={() => {
+                            if (renamingPageName.trim() && renamingPageName.trim() !== pg.name) {
+                              onRenamePage(pg.id, renamingPageName.trim());
+                            }
+                            setRenamingPageId(null);
+                          }}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') {
                               if (renamingPageName.trim()) {
@@ -649,24 +742,32 @@ export const TopBar: React.FC<TopBarProps> = ({
                             }
                           }}
                           autoFocus
-                          className="w-full text-xs px-2 py-1 border border-indigo-500 rounded bg-white text-slate-800 focus:outline-none"
+                          className="flex-1 text-xs px-2.5 py-1.5 border-2 border-indigo-500 rounded-md bg-white text-slate-900 focus:outline-none"
                         />
                         <button
                           type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            if (renamingPageName.trim()) {
+                              onRenamePage(pg.id, renamingPageName.trim());
+                            }
+                            setRenamingPageId(null);
+                          }}
                           onClick={() => {
                             if (renamingPageName.trim()) {
                               onRenamePage(pg.id, renamingPageName.trim());
                             }
                             setRenamingPageId(null);
                           }}
-                          className="p-1 text-emerald-600 hover:bg-emerald-50 rounded cursor-pointer"
+                          className="px-2.5 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-md cursor-pointer flex items-center gap-1"
                         >
                           <Check className="w-3.5 h-3.5" />
+                          <span>Save</span>
                         </button>
                         <button
                           type="button"
                           onClick={() => setRenamingPageId(null)}
-                          className="p-1 text-slate-400 hover:bg-slate-100 rounded cursor-pointer"
+                          className="p-1.5 text-slate-500 hover:bg-slate-200 rounded-md cursor-pointer"
                         >
                           <X className="w-3.5 h-3.5" />
                         </button>
@@ -677,9 +778,9 @@ export const TopBar: React.FC<TopBarProps> = ({
                   return (
                     <div
                       key={pg.id}
-                      className={`group px-2.5 py-1.5 mx-1 rounded-md flex items-center justify-between text-xs transition-colors cursor-pointer ${
+                      className={`px-3 py-2 mx-1 my-0.5 rounded-lg flex items-center justify-between text-xs transition-colors cursor-pointer ${
                         isActive
-                          ? 'bg-indigo-50 text-indigo-900 font-medium'
+                          ? 'bg-indigo-50 text-indigo-900 font-bold border border-indigo-200/60'
                           : 'text-slate-700 hover:bg-slate-100'
                       }`}
                       onClick={() => {
@@ -687,20 +788,22 @@ export const TopBar: React.FC<TopBarProps> = ({
                         setPageMenuOpen(false);
                       }}
                     >
-                      <div className="flex items-center gap-2 truncate min-w-0">
+                      <div className="flex items-center gap-2 truncate min-w-0 flex-1">
                         <Layers
-                          className={`w-3.5 h-3.5 shrink-0 ${
+                          className={`w-4 h-4 shrink-0 ${
                             isActive ? 'text-indigo-600' : 'text-slate-400'
                           }`}
                         />
-                        <span className="truncate">{pg.name}</span>
-                        <span className="text-[10px] text-slate-400 font-mono">
+                        <span className="truncate">
+                          {idx === 0 ? `${pg.name} (Main)` : pg.name}
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-mono shrink-0">
                           ({pg.objects.length} items)
                         </span>
                       </div>
 
                       <div
-                        className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
+                        className="flex items-center gap-1 shrink-0 ml-2"
                         onClick={(e) => e.stopPropagation()}
                       >
                         <button
@@ -709,18 +812,20 @@ export const TopBar: React.FC<TopBarProps> = ({
                             setRenamingPageId(pg.id);
                             setRenamingPageName(pg.name);
                           }}
-                          className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded transition-colors cursor-pointer"
+                          className="px-2 py-1 text-[11px] font-medium text-indigo-700 bg-white hover:bg-indigo-50 border border-slate-200 rounded-md transition-colors cursor-pointer flex items-center gap-1"
                           title="Rename page"
                         >
-                          <Edit2 className="w-3.5 h-3.5" />
+                          <Edit2 className="w-3 h-3" />
+                          <span>Rename</span>
                         </button>
                         {activeProject.pages.length > 1 && (
                           <button
                             type="button"
                             onClick={() => {
                               onDeletePage(pg.id);
+                              setPageMenuOpen(false);
                             }}
-                            className="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-slate-100 rounded transition-colors cursor-pointer"
+                            className="p-1.5 text-rose-600 hover:bg-rose-50 border border-slate-200 rounded-md transition-colors cursor-pointer"
                             title="Delete page"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -735,23 +840,38 @@ export const TopBar: React.FC<TopBarProps> = ({
           )}
         </div>
 
-        {/* Real-time Persistence Status Badge */}
-        <div
-          className="hidden lg:flex items-center gap-1 text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 whitespace-nowrap shrink-0"
-          title="Disk persistence active: all drawings, sticky notes, attachments, and pages are automatically saved to your PC."
+        {/* 1-Tap Save Now + Auto-Save Status Button */}
+        <button
+          type="button"
+          onClick={handleTriggerSaveNow}
+          className={`flex items-center gap-1 text-[11px] font-bold px-2 py-1.5 rounded-md border transition-all whitespace-nowrap shrink-0 cursor-pointer ${
+            justSavedFlash
+              ? 'bg-emerald-600 text-white border-emerald-700 shadow-sm scale-105'
+              : 'text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border-emerald-200'
+          }`}
+          title="Tap to force-save all text, photos, projects, and pages to device & cloud right now"
         >
-          <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
-          <span>Saved</span>
-        </div>
+          {justSavedFlash ? (
+            <>
+              <CheckCircle2 className="w-3.5 h-3.5 text-white shrink-0" />
+              <span>Saved!</span>
+            </>
+          ) : (
+            <>
+              <Save className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+              <span className="hidden sm:inline">Save</span>
+            </>
+          )}
+        </button>
       </div>
 
       {/* ========================================================= */}
       {/* ZONE 2 (CENTER): Search, Canvas Tools & Timer             */}
       {/* ========================================================= */}
-      <div className="flex items-center gap-2 min-w-0 shrink px-2 justify-center">
-        {/* Search Bar */}
+      <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 shrink px-1 sm:px-2 justify-center">
+        {/* Search Bar (visible on md+ screens) */}
         {onSearchChange && (
-          <div className="relative flex items-center">
+          <div className="relative hidden md:flex items-center">
             <input
               type="text"
               value={searchQuery}
@@ -770,7 +890,7 @@ export const TopBar: React.FC<TopBarProps> = ({
                 }
               }}
               placeholder="Search canvas..."
-              className="w-24 sm:w-32 md:w-44 lg:w-48 pl-7 pr-8 py-1 text-xs bg-slate-100/90 hover:bg-slate-100 focus:bg-white text-slate-800 placeholder-slate-400 rounded-lg border border-slate-200/90 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/20 transition-all font-medium"
+              className="w-28 md:w-40 lg:w-48 pl-7 pr-8 py-1 text-xs bg-slate-100/90 hover:bg-slate-100 focus:bg-white text-slate-800 placeholder-slate-400 rounded-lg border border-slate-200/90 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/20 transition-all font-medium"
             />
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2 pointer-events-none" />
 
@@ -861,23 +981,41 @@ export const TopBar: React.FC<TopBarProps> = ({
               setProjectMenuOpen(false);
               setPageMenuOpen(false);
             }}
-            className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200/80 rounded-md border border-slate-200/80 transition-colors whitespace-nowrap cursor-pointer"
-            title="Canvas Options & Tools"
+            className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200/80 rounded-md border border-slate-200/80 transition-colors whitespace-nowrap cursor-pointer"
+            title="Canvas Options, Backup & Tools"
           >
-            <SlidersHorizontal className="w-3 h-3 text-slate-500" />
-            <span className="hidden sm:inline">Tools</span>
+            <SlidersHorizontal className="w-3.5 h-3.5 text-slate-600" />
+            <span className="hidden sm:inline">Menu</span>
             <ChevronDown className="w-3 h-3 text-slate-400" />
           </button>
 
           {toolsMenuOpen && (
-            <div className="absolute left-1/2 -translate-x-1/2 top-full mt-1.5 w-44 bg-white rounded-lg shadow-xl border border-slate-200 py-1.5 z-50 animate-in fade-in zoom-in-95 duration-100">
+            <div className="fixed right-2 top-15 sm:absolute sm:right-0 sm:top-full sm:mt-1.5 w-56 bg-white rounded-xl shadow-2xl border border-slate-200 py-1.5 z-[100]">
+              <button
+                type="button"
+                onClick={handleGoHome}
+                className="w-full px-3 py-2 text-left text-xs font-semibold text-indigo-700 hover:bg-indigo-50 flex items-center gap-2 cursor-pointer transition-colors"
+              >
+                <Home className="w-3.5 h-3.5" />
+                <span>Go to Main / Home Page</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onFitToContent();
+                  setToolsMenuOpen(false);
+                }}
+                className="w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 flex items-center gap-2 cursor-pointer transition-colors"
+              >
+                <span>Center / Fit Canvas (100%)</span>
+              </button>
               <button
                 type="button"
                 onClick={() => {
                   onOpenTemplates();
                   setToolsMenuOpen(false);
                 }}
-                className="w-full px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 flex items-center gap-2 cursor-pointer transition-colors"
+                className="w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 flex items-center gap-2 cursor-pointer transition-colors"
               >
                 <span>Templates</span>
               </button>
@@ -886,22 +1024,12 @@ export const TopBar: React.FC<TopBarProps> = ({
                 onClick={() => {
                   onCycleGridMode();
                 }}
-                className="w-full px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 flex items-center justify-between cursor-pointer transition-colors"
+                className="w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 flex items-center justify-between cursor-pointer transition-colors"
               >
                 <span>Grid Style</span>
-                <span className="font-mono text-[10px] text-slate-400 uppercase bg-slate-100 px-1 py-0.5 rounded">
+                <span className="font-mono text-[10px] text-slate-500 uppercase bg-slate-100 px-1.5 py-0.5 rounded">
                   {gridMode}
                 </span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  onFitToContent();
-                  setToolsMenuOpen(false);
-                }}
-                className="w-full px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 flex items-center gap-2 cursor-pointer transition-colors"
-              >
-                <span>Fit Canvas</span>
               </button>
               <button
                 type="button"
@@ -909,16 +1037,50 @@ export const TopBar: React.FC<TopBarProps> = ({
                   onOpenActivityAndVotes();
                   setToolsMenuOpen(false);
                 }}
-                className="w-full px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 flex items-center gap-2 cursor-pointer transition-colors"
+                className="w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 flex items-center gap-2 cursor-pointer transition-colors"
               >
                 <span>Activity & Votes</span>
+              </button>
+              <div className="my-1 border-t border-slate-100" />
+              <button
+                type="button"
+                onClick={() => {
+                  if (onExportWorkspaceBackup) onExportWorkspaceBackup();
+                  setToolsMenuOpen(false);
+                }}
+                className="w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 flex items-center gap-2 cursor-pointer transition-colors"
+              >
+                <Download className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Download Backup (.json)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  restoreFileInputRef.current?.click();
+                  setToolsMenuOpen(false);
+                }}
+                className="w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 flex items-center gap-2 cursor-pointer transition-colors"
+              >
+                <HardDrive className="w-3.5 h-3.5 text-amber-600" />
+                <span>Restore Backup (.json)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onOpenDriveModal();
+                  setToolsMenuOpen(false);
+                }}
+                className="w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 flex items-center gap-2 cursor-pointer transition-colors"
+              >
+                <Cloud className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Cloud Storage Settings</span>
               </button>
             </div>
           )}
         </div>
 
-        {/* Jam Timer Widget */}
-        <div className="relative shrink-0">
+        {/* Jam Timer Widget (visible on lg+) */}
+        <div className="relative hidden lg:block shrink-0">
           <button
             type="button"
             onClick={() => setShowTimerPopover((prev) => !prev)}
@@ -938,7 +1100,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           </button>
 
           {showTimerPopover && (
-            <div className="absolute right-0 sm:left-1/2 sm:-translate-x-1/2 top-full mt-2 w-48 bg-white rounded-lg shadow-xl border border-slate-200 p-2.5 z-50">
+            <div className="absolute right-0 sm:left-1/2 sm:-translate-x-1/2 top-full mt-2 w-48 bg-white rounded-lg shadow-xl border border-slate-200 p-2.5 z-[100]">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-semibold text-slate-800">Jam Timer</span>
                 <button
@@ -1002,20 +1164,20 @@ export const TopBar: React.FC<TopBarProps> = ({
       {/* ========================================================= */}
       {/* ZONE 3 (RIGHT): Attach, Storage, Collaboration & Export    */}
       {/* ========================================================= */}
-      <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 flex-nowrap">
+      <div className="flex items-center gap-1 sm:gap-2 shrink-0 flex-nowrap">
         {/* Attach File Button */}
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          className="px-2 sm:px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200/80 rounded-md border border-slate-200/80 transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
-          title="Attach screenshots, PDFs, Excel sheets, PowerPoint decks"
+          className="px-2 sm:px-2.5 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200/80 rounded-md border border-slate-200/80 transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+          title="Attach photos, screenshots, PDFs, Excel sheets, PowerPoint decks"
         >
           <Paperclip className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
           <span className="hidden sm:inline">Attach</span>
         </button>
 
-        {/* Local PC Backup & Restore Buttons */}
-        <div className="flex items-center bg-slate-100 p-0.5 rounded-md border border-slate-200/80 shrink-0">
+        {/* Local PC Backup & Restore Buttons (visible on md+) */}
+        <div className="hidden md:flex items-center bg-slate-100 p-0.5 rounded-md border border-slate-200/80 shrink-0">
           <button
             type="button"
             onClick={onExportWorkspaceBackup}
@@ -1036,12 +1198,12 @@ export const TopBar: React.FC<TopBarProps> = ({
           </button>
         </div>
 
-        {/* Google Drive Status / Manage Button */}
+        {/* Google Drive Status / Manage Button (visible on md+) */}
         {isDriveSignedIn ? (
           <button
             type="button"
             onClick={onOpenDriveModal}
-            className="px-2 py-1 text-xs font-medium text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-md transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+            className="hidden md:flex px-2 py-1 text-xs font-medium text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-md transition-colors items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
             title="Google Drive 5 TB Active (Click to manage cloud backups)"
           >
             {isAutosaving ? (
@@ -1052,44 +1214,21 @@ export const TopBar: React.FC<TopBarProps> = ({
             <span className="hidden md:inline font-semibold text-[11px]">
               {isAutosaving ? 'Saving...' : 'Drive'}
             </span>
-            <span className="font-mono text-[10px] text-emerald-600 hidden 2xl:inline">
-              (5 TB)
-            </span>
           </button>
         ) : (
           <button
             type="button"
             onClick={onOpenDriveModal}
-            className="px-2 py-1 text-xs font-medium text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200/80 border border-slate-200/80 rounded-md transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+            className="hidden md:flex px-2 py-1 text-xs font-medium text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200/80 border border-slate-200/80 rounded-md transition-colors items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
             title="Google Drive Cloud Backup (Click to configure or sign in)"
           >
-            <svg
-              className="w-3.5 h-3.5 shrink-0"
-              viewBox="0 0 48 48"
-            >
-              <path
-                fill="#EA4335"
-                d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
-              />
-              <path
-                fill="#4285F4"
-                d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
-              />
-              <path
-                fill="#FBBC05"
-                d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"
-              />
-              <path
-                fill="#34A853"
-                d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
-              />
-            </svg>
+            <Cloud className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
             <span className="hidden sm:inline text-[11px]">Drive</span>
           </button>
         )}
 
         {/* Collaborators Avatar Stack */}
-        <div className="flex items-center -space-x-1.5 shrink-0">
+        <div className="hidden sm:flex items-center -space-x-1.5 shrink-0">
           <button
             type="button"
             onClick={onOpenShareModal}
@@ -1128,11 +1267,11 @@ export const TopBar: React.FC<TopBarProps> = ({
           })}
         </div>
 
-        {/* Export SVG Button */}
+        {/* Export SVG Button (visible on sm+) */}
         <button
           type="button"
           onClick={onExportSvg}
-          className="px-2.5 sm:px-3 py-1 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-md transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer shadow-xs"
+          className="hidden sm:flex px-2.5 sm:px-3 py-1 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-md transition-colors items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer shadow-xs"
           title="Export vector SVG"
         >
           <Download className="w-3.5 h-3.5 shrink-0" />

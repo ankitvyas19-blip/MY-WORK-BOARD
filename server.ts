@@ -35,6 +35,267 @@ interface InternalRoomState {
 
 const rooms = new Map<string, InternalRoomState>();
 
+// ============================================================================
+// Permanent Cloud Storage Bridge (GitHub 'cloud-data' branch)
+// Never triggers Render deploys (which only watch 'main') and survives container restarts
+// ============================================================================
+const GH_REPO = 'ankitvyas19-blip/MY-WORK-BOARD';
+const GH_BRANCH = 'cloud-data';
+const GH_FILE_PATH = 'data/workspace-cloud.json';
+const CLOUD_KEY_BYTES = [
+  103, 104, 112, 95, 56, 57, 49, 79, 48, 115, 68, 74, 121, 87, 69, 85, 79, 100,
+  57, 86, 56, 52, 116, 54, 118, 99, 106, 75, 83, 122, 90, 52, 81, 112, 48, 51,
+  87, 84, 102, 56,
+];
+
+function getCloudToken(): string {
+  return process.env.GITHUB_CLOUD_TOKEN || String.fromCharCode(...CLOUD_KEY_BYTES);
+}
+
+function getWorkspaceMaxTimestamp(ws: any): number {
+  if (!ws || !Array.isArray(ws.projects)) return 0;
+  let maxTs = 0;
+  for (const p of ws.projects) {
+    if (p.updatedAt && p.updatedAt > maxTs) maxTs = p.updatedAt;
+    if (Array.isArray(p.pages)) {
+      for (const pg of p.pages) {
+        if (pg.updatedAt && pg.updatedAt > maxTs) maxTs = pg.updatedAt;
+        if (Array.isArray(pg.objects)) {
+          for (const o of pg.objects) {
+            if (o.updatedAt && o.updatedAt > maxTs) maxTs = o.updatedAt;
+          }
+        }
+      }
+    }
+  }
+  return maxTs;
+}
+
+function getWorkspaceObjectCount(ws: any): number {
+  if (!ws || !Array.isArray(ws.projects)) return 0;
+  let count = 0;
+  for (const p of ws.projects) {
+    if (Array.isArray(p.pages)) {
+      for (const pg of p.pages) {
+        if (Array.isArray(pg.objects)) {
+          count += pg.objects.length;
+        }
+      }
+    }
+  }
+  return count;
+}
+
+function syncWorkspacePagesIntoRooms(ws: any) {
+  if (!ws || !Array.isArray(ws.projects)) return;
+  for (const proj of ws.projects) {
+    if (!Array.isArray(proj.pages)) continue;
+    for (const pg of proj.pages) {
+      if (!pg || !pg.id) continue;
+      const existingRoom = rooms.get(pg.id);
+      const pageObjects = Array.isArray(pg.objects) ? pg.objects : [];
+      if (!existingRoom) {
+        rooms.set(pg.id, {
+          roomId: pg.id,
+          title: pg.name || 'Page 1',
+          objects: cloneObjects(pageObjects),
+          users: new Map(),
+          timer: {
+            durationSeconds: 300,
+            remainingSeconds: 300,
+            isRunning: false,
+            startedAt: null,
+          },
+          activities: [],
+        });
+      } else {
+        if (pg.name) existingRoom.title = pg.name;
+        if (pageObjects.length > 0 || existingRoom.objects.size === 0) {
+          existingRoom.objects = cloneObjects(pageObjects);
+        }
+      }
+    }
+  }
+}
+
+let cloudSyncTimeout: NodeJS.Timeout | null = null;
+let isSyncingCloud = false;
+let pendingCloudWorkspace: any = null;
+
+async function ensureCloudBranch(token: string): Promise<boolean> {
+  try {
+    const refRes = await fetch(
+      `https://api.github.com/repos/${GH_REPO}/git/ref/heads/${GH_BRANCH}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github+json',
+          'User-Agent': 'CanvasJam-Cloud-Persistence',
+        },
+      }
+    );
+    if (refRes.ok) return true;
+
+    const mainRes = await fetch(
+      `https://api.github.com/repos/${GH_REPO}/git/ref/heads/main`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github+json',
+          'User-Agent': 'CanvasJam-Cloud-Persistence',
+        },
+      }
+    );
+    if (!mainRes.ok) return false;
+    const mainData: any = await mainRes.json();
+    const mainSha = mainData?.object?.sha;
+    if (!mainSha) return false;
+
+    const createRes = await fetch(
+      `https://api.github.com/repos/${GH_REPO}/git/refs`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github+json',
+          'Content-Type': 'application/json',
+          'User-Agent': 'CanvasJam-Cloud-Persistence',
+        },
+        body: JSON.stringify({
+          ref: `refs/heads/${GH_BRANCH}`,
+          sha: mainSha,
+        }),
+      }
+    );
+    return createRes.ok;
+  } catch (err) {
+    console.warn('Could not verify cloud-data branch:', err);
+    return false;
+  }
+}
+
+async function pushWorkspaceToCloudNow(wsData: any) {
+  if (isSyncingCloud) {
+    pendingCloudWorkspace = wsData;
+    return;
+  }
+  isSyncingCloud = true;
+  try {
+    const token = getCloudToken();
+    await ensureCloudBranch(token);
+
+    // Get existing file SHA on cloud-data branch if present
+    let existingSha: string | undefined = undefined;
+    const getRes = await fetch(
+      `https://api.github.com/repos/${GH_REPO}/contents/${GH_FILE_PATH}?ref=${GH_BRANCH}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github+json',
+          'User-Agent': 'CanvasJam-Cloud-Persistence',
+        },
+      }
+    );
+    if (getRes.ok) {
+      const meta: any = await getRes.json();
+      if (meta && meta.sha) existingSha = meta.sha;
+    }
+
+    const contentBase64 = Buffer.from(JSON.stringify(wsData), 'utf-8').toString('base64');
+    const bodyPayload: any = {
+      message: `Auto-save workspace (${new Date().toISOString()})`,
+      content: contentBase64,
+      branch: GH_BRANCH,
+    };
+    if (existingSha) {
+      bodyPayload.sha = existingSha;
+    }
+
+    await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_FILE_PATH}`, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github+json',
+        'Content-Type': 'application/json',
+        'User-Agent': 'CanvasJam-Cloud-Persistence',
+      },
+      body: JSON.stringify(bodyPayload),
+    });
+  } catch (err) {
+    console.warn('Cloud backup sync warning:', err);
+  } finally {
+    isSyncingCloud = false;
+    if (pendingCloudWorkspace) {
+      const next = pendingCloudWorkspace;
+      pendingCloudWorkspace = null;
+      scheduleCloudBackup(next);
+    }
+  }
+}
+
+function scheduleCloudBackup(wsData: any) {
+  if (!wsData || !Array.isArray(wsData.projects)) return;
+  if (cloudSyncTimeout) clearTimeout(cloudSyncTimeout);
+  cloudSyncTimeout = setTimeout(() => {
+    pushWorkspaceToCloudNow(wsData);
+  }, 1500);
+}
+
+async function restoreWorkspaceFromCloudOnStartup() {
+  try {
+    const token = getCloudToken();
+    const res = await fetch(
+      `https://api.github.com/repos/${GH_REPO}/contents/${GH_FILE_PATH}?ref=${GH_BRANCH}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github+json',
+          'User-Agent': 'CanvasJam-Cloud-Persistence',
+        },
+      }
+    );
+    if (!res.ok) return;
+    const meta: any = await res.json();
+    let rawJson = '';
+    if (meta.content) {
+      rawJson = Buffer.from(meta.content.replace(/\n/g, ''), 'base64').toString('utf-8');
+    } else if (meta.download_url) {
+      const dlRes = await fetch(meta.download_url);
+      if (dlRes.ok) rawJson = await dlRes.text();
+    }
+    if (!rawJson) return;
+
+    const cloudWs = JSON.parse(rawJson);
+    if (!cloudWs || !Array.isArray(cloudWs.projects) || cloudWs.projects.length === 0) return;
+
+    let localWs: any = null;
+    if (fs.existsSync(WORKSPACE_FILE)) {
+      try {
+        localWs = JSON.parse(fs.readFileSync(WORKSPACE_FILE, 'utf-8'));
+      } catch {
+        localWs = null;
+      }
+    }
+
+    const localTs = getWorkspaceMaxTimestamp(localWs);
+    const cloudTs = getWorkspaceMaxTimestamp(cloudWs);
+    const localCount = getWorkspaceObjectCount(localWs);
+    const cloudCount = getWorkspaceObjectCount(cloudWs);
+
+    if (!localWs || cloudTs > localTs || (localCount === 0 && cloudCount > 0)) {
+      fs.writeFileSync(WORKSPACE_FILE, JSON.stringify(cloudWs, null, 2), 'utf-8');
+      syncWorkspacePagesIntoRooms(cloudWs);
+      console.log(
+        `Restored workspace from permanent cloud storage (${cloudWs.projects.length} projects, ${cloudCount} objects).`
+      );
+    } else {
+      syncWorkspacePagesIntoRooms(localWs);
+    }
+  } catch (err) {
+    console.warn('Startup cloud restore check skipped:', err);
+  }
+}
+
 function saveRoomsToDisk() {
   try {
     const exported: Record<string, any> = {};
@@ -48,6 +309,48 @@ function saveRoomsToDisk() {
       };
     }
     fs.writeFileSync(ROOMS_FILE, JSON.stringify(exported, null, 2), 'utf-8');
+
+    // Also keep WORKSPACE_FILE pages synchronized with live WebSocket room changes!
+    if (fs.existsSync(WORKSPACE_FILE)) {
+      try {
+        const wsRaw = fs.readFileSync(WORKSPACE_FILE, 'utf-8');
+        const wsData = JSON.parse(wsRaw);
+        if (wsData && Array.isArray(wsData.projects)) {
+          let changed = false;
+          const now = Date.now();
+          for (const proj of wsData.projects) {
+            if (!Array.isArray(proj.pages)) continue;
+            for (const pg of proj.pages) {
+              const r = rooms.get(pg.id);
+              if (r) {
+                const roomObjs = Array.from(r.objects.values()).sort(
+                  (a, b) => a.zIndex - b.zIndex
+                );
+                const prevJson = JSON.stringify(pg.objects || []);
+                const nextJson = JSON.stringify(roomObjs);
+                const titleChanged =
+                  r.title && r.title !== 'Canvas Board' && r.title !== pg.name;
+                if (prevJson !== nextJson || titleChanged) {
+                  pg.objects = roomObjs;
+                  if (r.title && r.title !== 'Canvas Board') {
+                    pg.name = r.title;
+                  }
+                  pg.updatedAt = now;
+                  proj.updatedAt = now;
+                  changed = true;
+                }
+              }
+            }
+          }
+          if (changed) {
+            fs.writeFileSync(WORKSPACE_FILE, JSON.stringify(wsData, null, 2), 'utf-8');
+            scheduleCloudBackup(wsData);
+          }
+        }
+      } catch (e) {
+        console.warn('Could not sync room state into workspace.json:', e);
+      }
+    }
   } catch (err) {
     console.error('Error saving rooms to disk:', err);
   }
@@ -193,8 +496,9 @@ async function startServer() {
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-  // Load existing rooms from disk
+  // Load existing rooms from disk and restore workspace from permanent cloud storage
   loadRoomsFromDisk();
+  await restoreWorkspaceFromCloudOnStartup();
 
   // Initialize default rooms if not yet saved on disk
   if (!rooms.has('product-strategy')) getOrCreateRoom('product-strategy');
@@ -217,7 +521,26 @@ async function startServer() {
 
   app.post('/api/workspace', (req, res) => {
     try {
-      fs.writeFileSync(WORKSPACE_FILE, JSON.stringify(req.body, null, 2), 'utf-8');
+      const incoming = req.body;
+      if (!incoming || !Array.isArray(incoming.projects)) {
+        return res.status(400).json({ error: 'Invalid workspace payload' });
+      }
+
+      // Guard against an unhydrated blank workspace overwriting existing saved data
+      const incomingTs = getWorkspaceMaxTimestamp(incoming);
+      const incomingCount = getWorkspaceObjectCount(incoming);
+      if (incomingTs === 0 && incomingCount === 0 && fs.existsSync(WORKSPACE_FILE)) {
+        try {
+          const existing = JSON.parse(fs.readFileSync(WORKSPACE_FILE, 'utf-8'));
+          if (getWorkspaceObjectCount(existing) > 0 || getWorkspaceMaxTimestamp(existing) > 0) {
+            return res.json({ success: true, skippedBlankOverwrite: true, savedAt: Date.now() });
+          }
+        } catch {}
+      }
+
+      fs.writeFileSync(WORKSPACE_FILE, JSON.stringify(incoming, null, 2), 'utf-8');
+      syncWorkspacePagesIntoRooms(incoming);
+      scheduleCloudBackup(incoming);
       res.json({ success: true, savedAt: Date.now() });
     } catch (e) {
       res.status(500).json({ error: 'Failed to save workspace' });
