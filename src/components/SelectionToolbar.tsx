@@ -9,6 +9,11 @@ import {
   ThumbsUp,
   Eye,
   ExternalLink,
+  Link2,
+  Unlink2,
+  ArrowRight,
+  ArrowLeftRight,
+  Minus,
 } from 'lucide-react';
 import {
   AttachmentObject,
@@ -26,8 +31,11 @@ interface SelectionToolbarProps {
   onUpdateShapeFill: (fillStyle: 'solid' | 'tinted' | 'outline') => void;
   onUpdateConnectorStyle: (
     curveStyle?: 'curved' | 'straight' | 'elbow',
-    lineStyle?: 'solid' | 'dashed'
+    lineStyle?: 'solid' | 'dashed' | 'dotted',
+    arrowStart?: boolean,
+    arrowEnd?: boolean
   ) => void;
+  onToggleConnectorBinding?: (connectorId: string) => void;
   onToggleVote: (stickyId: string) => void;
   onBringToFront: () => void;
   onSendToBack: () => void;
@@ -55,6 +63,7 @@ export const SelectionToolbar: React.FC<SelectionToolbarProps> = ({
   onUpdateSelectedFont,
   onUpdateShapeFill,
   onUpdateConnectorStyle,
+  onToggleConnectorBinding,
   onToggleVote,
   onBringToFront,
   onSendToBack,
@@ -187,39 +196,114 @@ export const SelectionToolbar: React.FC<SelectionToolbarProps> = ({
         </div>
       )}
 
-      {/* Connector Curve & Line Style */}
+      {/* Connector Curve & Line Style & Arrowhead & Binding Toggle */}
       {singleConnector && !allLocked && (
-        <div className="flex items-center gap-1 pr-2 border-r border-slate-200">
-          {(['curved', 'elbow', 'straight'] as const).map((cs) => (
+        <div className="flex items-center gap-1.5 pr-2 border-r border-slate-200">
+          {/* Curve Types: Curved, Straight, Elbow */}
+          <div className="flex items-center bg-slate-100 p-0.5 rounded-lg">
+            {(['curved', 'straight', 'elbow'] as const).map((cs) => (
+              <button
+                key={cs}
+                type="button"
+                onClick={() => onUpdateConnectorStyle(cs, undefined, undefined, undefined)}
+                className={`px-2 py-0.5 text-xs rounded-md capitalize transition-colors whitespace-nowrap cursor-pointer ${
+                  singleConnector.curveStyle === cs
+                    ? 'bg-white text-indigo-700 font-bold shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {cs}
+              </button>
+            ))}
+          </div>
+
+          {/* Stroke Styles: Solid, Dashed, Dotted */}
+          <div className="flex items-center bg-slate-100 p-0.5 rounded-lg">
+            {(['solid', 'dashed', 'dotted'] as const).map((ls) => (
+              <button
+                key={ls}
+                type="button"
+                onClick={() => onUpdateConnectorStyle(undefined, ls, undefined, undefined)}
+                className={`px-2 py-0.5 text-xs rounded-md capitalize transition-colors whitespace-nowrap cursor-pointer ${
+                  singleConnector.lineStyle === ls
+                    ? 'bg-white text-indigo-700 font-bold shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {ls}
+              </button>
+            ))}
+          </div>
+
+          {/* Arrowhead Styles: Single Arrow ->, Double Arrow <->, Plain Line --- */}
+          <div className="flex items-center bg-slate-100 p-0.5 rounded-lg">
             <button
-              key={cs}
               type="button"
-              onClick={() => onUpdateConnectorStyle(cs, undefined)}
-              className={`px-2 py-1 text-xs rounded-md capitalize transition-colors whitespace-nowrap cursor-pointer ${
-                singleConnector.curveStyle === cs
-                  ? 'bg-indigo-600 text-white font-medium'
-                  : 'text-slate-600 hover:bg-slate-100'
+              onClick={() => onUpdateConnectorStyle(undefined, undefined, false, true)}
+              title="One-way Arrow (->)"
+              className={`p-1 rounded-md transition-colors cursor-pointer ${
+                !singleConnector.arrowStart && singleConnector.arrowEnd !== false
+                  ? 'bg-white text-indigo-700 font-bold shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              {cs}
+              <ArrowRight className="w-3.5 h-3.5" />
             </button>
-          ))}
-          <button
-            type="button"
-            onClick={() =>
-              onUpdateConnectorStyle(
-                undefined,
-                singleConnector.lineStyle === 'dashed' ? 'solid' : 'dashed'
-              )
-            }
-            className={`px-2 py-1 text-xs rounded-md transition-colors whitespace-nowrap cursor-pointer ${
-              singleConnector.lineStyle === 'dashed'
-                ? 'bg-slate-900 text-white font-medium'
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            Dashed
-          </button>
+            <button
+              type="button"
+              onClick={() => onUpdateConnectorStyle(undefined, undefined, true, true)}
+              title="Two-way Arrow (<->)"
+              className={`p-1 rounded-md transition-colors cursor-pointer ${
+                singleConnector.arrowStart && singleConnector.arrowEnd !== false
+                  ? 'bg-white text-indigo-700 font-bold shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <ArrowLeftRight className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => onUpdateConnectorStyle(undefined, undefined, false, false)}
+              title="Line Only Without Arrows (---)"
+              className={`p-1 rounded-md transition-colors cursor-pointer ${
+                !singleConnector.arrowStart && singleConnector.arrowEnd === false
+                  ? 'bg-white text-indigo-700 font-bold shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Minus className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* Magnetic Binding: Move With Text or Free Floating */}
+          {onToggleConnectorBinding && (
+            <button
+              type="button"
+              onClick={() => onToggleConnectorBinding(singleConnector.id)}
+              title={
+                singleConnector.fromId || singleConnector.toId
+                  ? 'Connected to text or shapes. Click to disconnect and make free-floating.'
+                  : 'Free-floating connector. Click to connect to nearest text or shape so it moves with it.'
+              }
+              className={`px-2.5 py-1 text-xs rounded-lg font-medium flex items-center gap-1.5 transition-all cursor-pointer ${
+                singleConnector.fromId || singleConnector.toId
+                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-300 hover:bg-emerald-100'
+                  : 'bg-slate-100 text-slate-700 border border-slate-300 hover:bg-slate-200'
+              }`}
+            >
+              {singleConnector.fromId || singleConnector.toId ? (
+                <>
+                  <Link2 className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Moves with Text: ON</span>
+                </>
+              ) : (
+                <>
+                  <Unlink2 className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Moves with Text: OFF</span>
+                </>
+              )}
+            </button>
+          )}
         </div>
       )}
 

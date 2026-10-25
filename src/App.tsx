@@ -30,6 +30,7 @@ import {
   Edit2,
   Move,
   Check,
+  ArrowRight,
 } from 'lucide-react';
 import {
   ActivityItem,
@@ -631,6 +632,7 @@ export default function App() {
       | 'resizing_object'
       | 'drawing_path'
       | 'drawing_connector'
+      | 'dragging_connector_endpoint'
       | 'creating_box';
     startScreen: Point;
     startWorld: Point;
@@ -640,6 +642,7 @@ export default function App() {
     resizeStartBounds?: { x: number; y: number; width: number; height: number };
     activePathId?: string;
     activeConnectorId?: string;
+    connectorEndpoint?: 'start' | 'end';
     activeBoxId?: string;
   }>({
     mode: 'none',
@@ -1762,6 +1765,7 @@ export default function App() {
         tool !== 'text' &&
         tool !== 'stamp' &&
         tool !== 'section' &&
+        tool !== 'connector' &&
         tool !== 'pen'
       ) {
         return false;
@@ -1919,6 +1923,35 @@ export default function App() {
         return true;
       }
 
+      if (tool === 'connector') {
+        pushUndoSnapshot(objectsRef.current);
+        const id = `conn-${Date.now()}`;
+        const nearest = findNearestAnchor(worldPt, objectsRef.current, undefined, 64);
+        const fromPoint = nearest ? nearest.point : worldPt;
+        const toPoint = { x: fromPoint.x + 160, y: fromPoint.y };
+        const newConn: ConnectorObject = {
+          id,
+          type: 'connector',
+          fromId: nearest ? nearest.objectId : null,
+          fromPort: nearest ? nearest.port : 'right',
+          fromPoint,
+          toId: null,
+          toPort: 'left',
+          toPoint,
+          label: '',
+          color: activeColor === 'yellow' ? 'violet' : activeColor,
+          lineStyle: 'solid',
+          curveStyle: 'curved',
+          arrowEnd: true,
+          zIndex: Date.now() % 100000,
+          updatedAt: Date.now(),
+        };
+        createBoardObject(newConn);
+        setSelectedIds([id]);
+        setActiveTool('select');
+        return true;
+      }
+
       return false;
     },
     [
@@ -2067,6 +2100,12 @@ export default function App() {
               requestDeleteObjects([obj.id]);
               return;
             }
+            if (activeToolRef.current === 'connector') {
+              if (e.cancelable) e.preventDefault();
+              isSinglePanning = false;
+              handleStartConnectorFromObjectTouch(obj, t.clientX, t.clientY);
+              return;
+            }
             if (e.cancelable) e.preventDefault();
             isSinglePanning = false;
             if (activeToolRef.current !== 'select') {
@@ -2202,7 +2241,97 @@ export default function App() {
             }
             updatedBatch.push(copy);
           }
+
+          // Also update all connectors whose fromId or toId is among the moving objects!
+          const movedMap = new Map(updatedBatch.map((o) => [o.id, o]));
+          const curObjs = objectsRef.current;
+          for (const conn of curObjs) {
+            if (conn.type !== 'connector') continue;
+            if (state.dragSnapshots.has(conn.id)) continue;
+            let connChanged = false;
+            let nextFrom = conn.fromPoint;
+            let nextTo = conn.toPoint;
+
+            if (conn.fromId && movedMap.has(conn.fromId)) {
+              const movedSource = movedMap.get(conn.fromId)!;
+              nextFrom = getAnchorPoint(movedSource, conn.fromPort);
+              connChanged = true;
+            }
+            if (conn.toId && movedMap.has(conn.toId)) {
+              const movedTarget = movedMap.get(conn.toId)!;
+              nextTo = getAnchorPoint(movedTarget, conn.toPort);
+              connChanged = true;
+            }
+
+            if (connChanged) {
+              updatedBatch.push({
+                ...conn,
+                fromPoint: nextFrom,
+                toPoint: nextTo,
+              });
+            }
+          }
+
           batchUpdateBoardObjectsRef.current(updatedBatch, true);
+          return;
+        }
+
+        if (state.mode === 'drawing_connector' && state.activeConnectorId) {
+          if (e.cancelable) e.preventDefault();
+          const rect = canvasEl.getBoundingClientRect();
+          const worldPt = screenToWorld(t.clientX, t.clientY, viewportRef.current, rect);
+          const target = objectsMapRef.current.get(state.activeConnectorId);
+          if (target && target.type === 'connector') {
+            const nearest = findNearestAnchor(
+              worldPt,
+              objectsRef.current,
+              target.fromId || undefined,
+              54
+            );
+            setSnapCandidate(nearest);
+            const updated: ConnectorObject = {
+              ...target,
+              toId: nearest ? nearest.objectId : null,
+              toPort: nearest ? nearest.port : 'left',
+              toPoint: nearest ? nearest.point : { x: Math.round(worldPt.x), y: Math.round(worldPt.y) },
+            };
+            updateBoardObjectRef.current(updated, true);
+          }
+          return;
+        }
+
+        if (
+          state.mode === 'dragging_connector_endpoint' &&
+          state.activeConnectorId &&
+          state.connectorEndpoint
+        ) {
+          if (e.cancelable) e.preventDefault();
+          const rect = canvasEl.getBoundingClientRect();
+          const worldPt = screenToWorld(t.clientX, t.clientY, viewportRef.current, rect);
+          const target = objectsMapRef.current.get(state.activeConnectorId);
+          if (target && target.type === 'connector') {
+            const excludeId =
+              state.connectorEndpoint === 'start'
+                ? target.toId || undefined
+                : target.fromId || undefined;
+            const nearest = findNearestAnchor(worldPt, objectsRef.current, excludeId, 54);
+            setSnapCandidate(nearest);
+            const updated: ConnectorObject = { ...target };
+            if (state.connectorEndpoint === 'start') {
+              updated.fromId = nearest ? nearest.objectId : null;
+              updated.fromPort = nearest ? nearest.port : 'right';
+              updated.fromPoint = nearest
+                ? nearest.point
+                : { x: Math.round(worldPt.x), y: Math.round(worldPt.y) };
+            } else {
+              updated.toId = nearest ? nearest.objectId : null;
+              updated.toPort = nearest ? nearest.port : 'left';
+              updated.toPoint = nearest
+                ? nearest.point
+                : { x: Math.round(worldPt.x), y: Math.round(worldPt.y) };
+            }
+            updateBoardObjectRef.current(updated, true);
+          }
           return;
         }
 
@@ -2299,10 +2428,36 @@ export default function App() {
             wsRef.current.send(JSON.stringify({ type: 'object:create', object: finishedPath }));
           }
         }
+        if (curState.mode === 'drawing_connector' && curState.activeConnectorId) {
+          const finishedConn = objectsMapRef.current.get(curState.activeConnectorId);
+          if (finishedConn && finishedConn.type === 'connector') {
+            const dist = Math.hypot(
+              finishedConn.toPoint.x - finishedConn.fromPoint.x,
+              finishedConn.toPoint.y - finishedConn.fromPoint.y
+            );
+            if (dist < 12) {
+              const adjusted: ConnectorObject = {
+                ...finishedConn,
+                toPoint: { x: finishedConn.fromPoint.x + 160, y: finishedConn.fromPoint.y },
+              };
+              updateBoardObjectRef.current(adjusted, true);
+            }
+            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+              wsRef.current.send(JSON.stringify({ type: 'object:create', object: finishedConn }));
+            }
+          }
+          setSnapCandidate(null);
+          setActiveTool('select');
+        }
+        if (curState.mode === 'dragging_connector_endpoint') {
+          setSnapCandidate(null);
+        }
         if (
           curState.mode === 'dragging_objects' ||
           curState.mode === 'resizing_object' ||
-          curState.mode === 'drawing_path'
+          curState.mode === 'drawing_path' ||
+          curState.mode === 'drawing_connector' ||
+          curState.mode === 'dragging_connector_endpoint'
         ) {
           interactionRef.current = {
             mode: 'none',
@@ -2450,7 +2605,7 @@ export default function App() {
     e.preventDefault();
   };
 
-  // Start Connector Drag from a Specific Anchor Port
+  // Start Connector Drag from a Specific Anchor Port (Mouse)
   const handleStartConnectorFromPort = (
     e: React.MouseEvent,
     sourceObj: BoardObject,
@@ -2469,11 +2624,12 @@ export default function App() {
       fromPoint: startPt,
       toId: null,
       toPort: 'left',
-      toPoint: startPt,
+      toPoint: { x: startPt.x + 60, y: startPt.y },
       label: '',
-      color: 'color' in sourceObj ? sourceObj.color : activeColor,
+      color: 'color' in sourceObj && sourceObj.color ? sourceObj.color : activeColor === 'yellow' ? 'violet' : activeColor,
       lineStyle: 'solid',
       curveStyle: 'curved',
+      arrowEnd: true,
       zIndex: Date.now() % 100000,
       updatedAt: Date.now(),
     };
@@ -2486,6 +2642,166 @@ export default function App() {
       startViewport: viewport,
       dragSnapshots: new Map(),
       activeConnectorId: connId,
+    };
+  };
+
+  // Start Connector Drag from an Anchor Port on Mobile Touchscreen
+  const handleStartConnectorFromPortTouch = (
+    e: React.TouchEvent,
+    sourceObj: BoardObject,
+    port: AnchorPort
+  ) => {
+    e.stopPropagation();
+    if (e.touches.length !== 1 || !canvasRef.current) return;
+    if (e.cancelable) e.preventDefault();
+    pushUndoSnapshot(objects);
+    const startPt = getAnchorPoint(sourceObj, port);
+    const connId = `conn-${Date.now()}`;
+    const newConn: ConnectorObject = {
+      id: connId,
+      type: 'connector',
+      fromId: sourceObj.id,
+      fromPort: port,
+      fromPoint: startPt,
+      toId: null,
+      toPort: 'left',
+      toPoint: { x: startPt.x + 60, y: startPt.y },
+      label: '',
+      color: 'color' in sourceObj && sourceObj.color ? sourceObj.color : activeColor === 'yellow' ? 'violet' : activeColor,
+      lineStyle: 'solid',
+      curveStyle: 'curved',
+      arrowEnd: true,
+      zIndex: Date.now() % 100000,
+      updatedAt: Date.now(),
+    };
+    setObjects((prev) => [...prev, newConn]);
+    setSelectedIds([connId]);
+    const t = e.touches[0];
+    interactionRef.current = {
+      mode: 'drawing_connector',
+      startScreen: { x: t.clientX, y: t.clientY },
+      startWorld: startPt,
+      startViewport: viewportRef.current,
+      dragSnapshots: new Map(),
+      activeConnectorId: connId,
+    };
+  };
+
+  // Start Connector when touching an object directly while Arrow tool is active
+  const handleStartConnectorFromObjectTouch = (
+    obj: BoardObject,
+    clientX: number,
+    clientY: number
+  ) => {
+    if (!canvasRef.current) return;
+    pushUndoSnapshot(objects);
+    const port: AnchorPort = 'right';
+    const startPt = getAnchorPoint(obj, port);
+    const connId = `conn-${Date.now()}`;
+    const newConn: ConnectorObject = {
+      id: connId,
+      type: 'connector',
+      fromId: obj.id,
+      fromPort: port,
+      fromPoint: startPt,
+      toId: null,
+      toPort: 'left',
+      toPoint: { x: startPt.x + 120, y: startPt.y },
+      label: '',
+      color: 'color' in obj && obj.color ? obj.color : activeColor === 'yellow' ? 'violet' : activeColor,
+      lineStyle: 'solid',
+      curveStyle: 'curved',
+      arrowEnd: true,
+      zIndex: Date.now() % 100000,
+      updatedAt: Date.now(),
+    };
+    setObjects((prev) => [...prev, newConn]);
+    setSelectedIds([connId]);
+    interactionRef.current = {
+      mode: 'drawing_connector',
+      startScreen: { x: clientX, y: clientY },
+      startWorld: startPt,
+      startViewport: viewportRef.current,
+      dragSnapshots: new Map(),
+      activeConnectorId: connId,
+    };
+  };
+
+  // Quick 1-tap Arrow Creation from a Text Box, Sticky, or Shape
+  const handleCreateArrowFromObject = (
+    sourceObj: BoardObject,
+    port: AnchorPort = 'right'
+  ) => {
+    pushUndoSnapshot(objects);
+    const startPt = getAnchorPoint(sourceObj, port);
+    const connId = `conn-${Date.now()}`;
+    const newConn: ConnectorObject = {
+      id: connId,
+      type: 'connector',
+      fromId: sourceObj.id,
+      fromPort: port,
+      fromPoint: startPt,
+      toId: null,
+      toPort: 'left',
+      toPoint: { x: startPt.x + 160, y: startPt.y },
+      label: '',
+      color: 'color' in sourceObj && sourceObj.color ? sourceObj.color : activeColor === 'yellow' ? 'violet' : activeColor,
+      lineStyle: 'solid',
+      curveStyle: 'curved',
+      arrowEnd: true,
+      zIndex: Date.now() % 100000,
+      updatedAt: Date.now(),
+    };
+    createBoardObject(newConn);
+    setSelectedIds([connId]);
+    setActiveTool('select');
+  };
+
+  // Start dragging a connector's Start or End handle to stretch, resize, or reconnect
+  const handleStartConnectorEndpointDrag = (
+    e: React.MouseEvent,
+    conn: ConnectorObject,
+    endpoint: 'start' | 'end'
+  ) => {
+    e.stopPropagation();
+    if (!canvasRef.current) return;
+    pushUndoSnapshot(objects);
+    const rect = canvasRef.current.getBoundingClientRect();
+    const worldPt = screenToWorld(e.clientX, e.clientY, viewport, rect);
+    setSelectedIds([conn.id]);
+    interactionRef.current = {
+      mode: 'dragging_connector_endpoint',
+      startScreen: { x: e.clientX, y: e.clientY },
+      startWorld: worldPt,
+      startViewport: viewport,
+      dragSnapshots: new Map(),
+      activeConnectorId: conn.id,
+      connectorEndpoint: endpoint,
+    };
+  };
+
+  // Start dragging a connector's Start or End handle on Mobile Touchscreen
+  const handleStartConnectorEndpointDragTouch = (
+    e: React.TouchEvent,
+    conn: ConnectorObject,
+    endpoint: 'start' | 'end'
+  ) => {
+    e.stopPropagation();
+    if (e.touches.length !== 1 || !canvasRef.current) return;
+    if (e.cancelable) e.preventDefault();
+    pushUndoSnapshot(objects);
+    const t = e.touches[0];
+    const rect = canvasRef.current.getBoundingClientRect();
+    const worldPt = screenToWorld(t.clientX, t.clientY, viewportRef.current, rect);
+    setSelectedIds([conn.id]);
+    interactionRef.current = {
+      mode: 'dragging_connector_endpoint',
+      startScreen: { x: t.clientX, y: t.clientY },
+      startWorld: worldPt,
+      startViewport: viewportRef.current,
+      dragSnapshots: new Map(),
+      activeConnectorId: conn.id,
+      connectorEndpoint: endpoint,
     };
   };
 
@@ -2753,6 +3069,10 @@ export default function App() {
       return;
     }
     const t = e.touches[0];
+    if (activeToolRef.current === 'connector') {
+      handleStartConnectorFromObjectTouch(obj, t.clientX, t.clientY);
+      return;
+    }
     startObjectDrag(obj, { x: t.clientX, y: t.clientY }, false);
   };
 
@@ -2833,6 +3153,36 @@ export default function App() {
         }
         updatedBatch.push(copy);
       }
+
+      // Also update all connectors attached to the moved objects so they follow text!
+      const movedMap = new Map(updatedBatch.map((o) => [o.id, o]));
+      for (const conn of objects) {
+        if (conn.type !== 'connector') continue;
+        if (state.dragSnapshots.has(conn.id)) continue;
+        let connChanged = false;
+        let nextFrom = conn.fromPoint;
+        let nextTo = conn.toPoint;
+
+        if (conn.fromId && movedMap.has(conn.fromId)) {
+          const movedSource = movedMap.get(conn.fromId)!;
+          nextFrom = getAnchorPoint(movedSource, conn.fromPort);
+          connChanged = true;
+        }
+        if (conn.toId && movedMap.has(conn.toId)) {
+          const movedTarget = movedMap.get(conn.toId)!;
+          nextTo = getAnchorPoint(movedTarget, conn.toPort);
+          connChanged = true;
+        }
+
+        if (connChanged) {
+          updatedBatch.push({
+            ...conn,
+            fromPoint: nextFrom,
+            toPoint: nextTo,
+          });
+        }
+      }
+
       batchUpdateBoardObjects(updatedBatch, true);
       return;
     }
@@ -2898,7 +3248,7 @@ export default function App() {
           worldPt,
           objects,
           target.fromId || undefined,
-          44
+          54
         );
         setSnapCandidate(nearest);
         const updated: ConnectorObject = {
@@ -2907,6 +3257,38 @@ export default function App() {
           toPort: nearest ? nearest.port : 'left',
           toPoint: nearest ? nearest.point : { x: Math.round(worldPt.x), y: Math.round(worldPt.y) },
         };
+        updateBoardObject(updated, true);
+      }
+      return;
+    }
+
+    if (
+      state.mode === 'dragging_connector_endpoint' &&
+      state.activeConnectorId &&
+      state.connectorEndpoint
+    ) {
+      const target = objectsMap.get(state.activeConnectorId);
+      if (target && target.type === 'connector') {
+        const excludeId =
+          state.connectorEndpoint === 'start'
+            ? target.toId || undefined
+            : target.fromId || undefined;
+        const nearest = findNearestAnchor(worldPt, objects, excludeId, 54);
+        setSnapCandidate(nearest);
+        const updated: ConnectorObject = { ...target };
+        if (state.connectorEndpoint === 'start') {
+          updated.fromId = nearest ? nearest.objectId : null;
+          updated.fromPort = nearest ? nearest.port : 'right';
+          updated.fromPoint = nearest
+            ? nearest.point
+            : { x: Math.round(worldPt.x), y: Math.round(worldPt.y) };
+        } else {
+          updated.toId = nearest ? nearest.objectId : null;
+          updated.toPort = nearest ? nearest.port : 'left';
+          updated.toPoint = nearest
+            ? nearest.point
+            : { x: Math.round(worldPt.x), y: Math.round(worldPt.y) };
+        }
         updateBoardObject(updated, true);
       }
       return;
@@ -2923,8 +3305,21 @@ export default function App() {
       }
     } else if (state.mode === 'drawing_connector' && state.activeConnectorId) {
       const finishedConn = objectsMap.get(state.activeConnectorId);
-      if (finishedConn) {
-        sendWs({ type: 'object:create', object: finishedConn });
+      if (finishedConn && finishedConn.type === 'connector') {
+        const dist = Math.hypot(
+          finishedConn.toPoint.x - finishedConn.fromPoint.x,
+          finishedConn.toPoint.y - finishedConn.fromPoint.y
+        );
+        if (dist < 12) {
+          const adjusted: ConnectorObject = {
+            ...finishedConn,
+            toPoint: { x: finishedConn.fromPoint.x + 160, y: finishedConn.fromPoint.y },
+          };
+          updateBoardObject(adjusted, true);
+          sendWs({ type: 'object:create', object: adjusted });
+        } else {
+          sendWs({ type: 'object:create', object: finishedConn });
+        }
       }
       setActiveTool('select');
     } else if (state.mode === 'creating_box') {
@@ -3612,7 +4007,7 @@ export default function App() {
           );
           batchUpdateBoardObjects(updated, true);
         }}
-        onUpdateConnectorStyle={(curveStyle, lineStyle) => {
+        onUpdateConnectorStyle={(curveStyle, lineStyle, arrowStart, arrowEnd) => {
           pushUndoSnapshot(objects);
           const updated = selectedObjects.map((o) => {
             if (o.type !== 'connector') return o;
@@ -3620,9 +4015,39 @@ export default function App() {
               ...o,
               curveStyle: curveStyle || o.curveStyle,
               lineStyle: lineStyle || o.lineStyle,
+              arrowStart: arrowStart !== undefined ? arrowStart : o.arrowStart,
+              arrowEnd: arrowEnd !== undefined ? arrowEnd : o.arrowEnd,
             };
           });
           batchUpdateBoardObjects(updated, true);
+        }}
+        onToggleConnectorBinding={(connectorId) => {
+          const conn = objectsMap.get(connectorId);
+          if (!conn || conn.type !== 'connector') return;
+          pushUndoSnapshot(objects);
+          if (conn.fromId || conn.toId) {
+            // Detach and make free floating
+            const detached: ConnectorObject = {
+              ...conn,
+              fromId: null,
+              toId: null,
+            };
+            updateBoardObject(detached, true);
+          } else {
+            // Re-bind to nearest objects
+            const nearStart = findNearestAnchor(conn.fromPoint, objects, conn.id, 80);
+            const nearEnd = findNearestAnchor(conn.toPoint, objects, conn.id, 80);
+            const attached: ConnectorObject = {
+              ...conn,
+              fromId: nearStart ? nearStart.objectId : null,
+              fromPort: nearStart ? nearStart.port : conn.fromPort,
+              fromPoint: nearStart ? nearStart.point : conn.fromPoint,
+              toId: nearEnd ? nearEnd.objectId : null,
+              toPort: nearEnd ? nearEnd.port : conn.toPort,
+              toPoint: nearEnd ? nearEnd.point : conn.toPoint,
+            };
+            updateBoardObject(attached, true);
+          }
         }}
         onToggleVote={handleToggleVote}
         onBringToFront={() => {
@@ -3827,29 +4252,101 @@ export default function App() {
                     stroke={strokeColor}
                     strokeWidth={isSelected ? 3.5 : 2.5}
                     strokeDasharray={
-                      conn.lineStyle === 'dashed' ? '7 5' : undefined
+                      conn.lineStyle === 'dashed'
+                        ? '7 5'
+                        : conn.lineStyle === 'dotted'
+                        ? '3 4'
+                        : undefined
                     }
                     strokeLinecap="round"
                     className="pointer-events-none"
                   />
-                  {/* Origin Dot */}
-                  <circle
-                    cx={from.x}
-                    cy={from.y}
-                    r={4}
-                    fill="#FFFFFF"
-                    stroke={strokeColor}
-                    strokeWidth={2}
-                  />
-                  {/* Directional Arrowhead at target */}
-                  <g
-                    transform={`translate(${to.x}, ${to.y}) rotate(${geom.endAngleDeg})`}
-                  >
-                    <polygon
-                      points="0,0 -11,-5.5 -8.5,0 -11,5.5"
-                      fill={strokeColor}
+                  {/* Origin Dot or Start Arrowhead (Double-Arrow) */}
+                  {conn.arrowStart ? (
+                    <g
+                      transform={`translate(${from.x}, ${from.y}) rotate(${geom.startAngleDeg})`}
+                    >
+                      <polygon
+                        points="0,0 -11,-5.5 -8.5,0 -11,5.5"
+                        fill={strokeColor}
+                      />
+                    </g>
+                  ) : (
+                    <circle
+                      cx={from.x}
+                      cy={from.y}
+                      r={4}
+                      fill="#FFFFFF"
+                      stroke={strokeColor}
+                      strokeWidth={2}
                     />
-                  </g>
+                  )}
+                  {/* Directional Arrowhead at target (Default true) */}
+                  {conn.arrowEnd !== false && (
+                    <g
+                      transform={`translate(${to.x}, ${to.y}) rotate(${geom.endAngleDeg})`}
+                    >
+                      <polygon
+                        points="0,0 -11,-5.5 -8.5,0 -11,5.5"
+                        fill={strokeColor}
+                      />
+                    </g>
+                  )}
+
+                  {/* Interactive Start and End Drag Handles when Selected (for Phone & Laptop) */}
+                  {isSelected && !conn.locked && (
+                    <>
+                      {/* Start Endpoint Drag Handle */}
+                      <g className="cursor-grab active:cursor-grabbing pointer-events-auto">
+                        <circle
+                          cx={from.x}
+                          cy={from.y}
+                          r={18}
+                          fill="transparent"
+                          onMouseDown={(e) =>
+                            handleStartConnectorEndpointDrag(e, conn, 'start')
+                          }
+                          onTouchStart={(e) =>
+                            handleStartConnectorEndpointDragTouch(e, conn, 'start')
+                          }
+                        />
+                        <circle
+                          cx={from.x}
+                          cy={from.y}
+                          r={7.5}
+                          fill="#FFFFFF"
+                          stroke={conn.fromId ? '#10B981' : '#4F46E5'}
+                          strokeWidth={3}
+                          className="pointer-events-none drop-shadow-md"
+                        />
+                      </g>
+
+                      {/* End Endpoint Drag Handle */}
+                      <g className="cursor-grab active:cursor-grabbing pointer-events-auto">
+                        <circle
+                          cx={to.x}
+                          cy={to.y}
+                          r={18}
+                          fill="transparent"
+                          onMouseDown={(e) =>
+                            handleStartConnectorEndpointDrag(e, conn, 'end')
+                          }
+                          onTouchStart={(e) =>
+                            handleStartConnectorEndpointDragTouch(e, conn, 'end')
+                          }
+                        />
+                        <circle
+                          cx={to.x}
+                          cy={to.y}
+                          r={7.5}
+                          fill={conn.toId ? '#10B981' : '#4F46E5'}
+                          stroke="#FFFFFF"
+                          strokeWidth={2.5}
+                          className="pointer-events-none drop-shadow-md"
+                        />
+                      </g>
+                    </>
+                  )}
                 </g>
               );
             })}
@@ -4047,6 +4544,18 @@ export default function App() {
                           <span>Edit</span>
                         </button>
                       )}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleCreateArrowFromObject(obj, 'right');
+                        }}
+                        className="px-2.5 py-1 bg-violet-600 text-white rounded-md text-[11px] font-bold flex items-center gap-1 shadow-md hover:bg-violet-700 active:scale-95 transition-all cursor-pointer"
+                        title="Add connected arrow from this note"
+                      >
+                        <ArrowRight className="w-3 h-3" />
+                        <span>+ Arrow</span>
+                      </button>
                     </div>
                   )}
 
@@ -4120,8 +4629,11 @@ export default function App() {
                           onMouseDown={(e) =>
                             handleStartConnectorFromPort(e, obj, port)
                           }
+                          onTouchStart={(e) =>
+                            handleStartConnectorFromPortTouch(e, obj, port)
+                          }
                           title={`Drag to connect (${port})`}
-                          className={`w-3 h-3 rounded-full bg-white border-2 border-indigo-600 hover:scale-125 transition-transform absolute cursor-crosshair z-20 ${
+                          className={`w-3.5 h-3.5 rounded-full bg-white border-2 border-indigo-600 hover:scale-125 transition-transform absolute cursor-crosshair z-20 ${
                             port === 'top'
                               ? '-top-1.5 left-1/2 -translate-x-1/2'
                               : port === 'right'
@@ -4188,6 +4700,31 @@ export default function App() {
                       : ''
                   }`}
                 >
+                  {(isSelected || isEditing) && !obj.locked && (
+                    <div className="absolute -top-9 left-0 flex items-center gap-1.5 z-30 select-none">
+                      <div
+                        data-drag-handle-id={obj.id}
+                        onMouseDown={(e) => handleObjectMouseDown(e, obj)}
+                        className="px-2.5 py-1 bg-slate-900 text-white rounded-md text-[11px] font-bold flex items-center gap-1 shadow-md cursor-grab active:cursor-grabbing touch-none"
+                        title="Hold and drag to move shape"
+                      >
+                        <Move className="w-3 h-3" />
+                        <span>Move</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleCreateArrowFromObject(obj, 'right');
+                        }}
+                        className="px-2.5 py-1 bg-violet-600 text-white rounded-md text-[11px] font-bold flex items-center gap-1 shadow-md hover:bg-violet-700 active:scale-95 transition-all cursor-pointer"
+                        title="Add connected arrow from this shape"
+                      >
+                        <ArrowRight className="w-3 h-3" />
+                        <span>+ Arrow</span>
+                      </button>
+                    </div>
+                  )}
                   <svg
                     className="absolute inset-0 w-full h-full overflow-visible pointer-events-none"
                     viewBox={`0 0 ${obj.width} ${obj.height}`}
@@ -4291,8 +4828,11 @@ export default function App() {
                           onMouseDown={(e) =>
                             handleStartConnectorFromPort(e, obj, port)
                           }
+                          onTouchStart={(e) =>
+                            handleStartConnectorFromPortTouch(e, obj, port)
+                          }
                           title={`Drag to connect (${port})`}
-                          className={`w-3 h-3 rounded-full bg-white border-2 border-indigo-600 hover:scale-125 transition-transform absolute cursor-crosshair z-20 ${
+                          className={`w-3.5 h-3.5 rounded-full bg-white border-2 border-indigo-600 hover:scale-125 transition-transform absolute cursor-crosshair z-20 ${
                             port === 'top'
                               ? '-top-1.5 left-1/2 -translate-x-1/2'
                               : port === 'right'
@@ -4386,6 +4926,18 @@ export default function App() {
                           <span>Edit Text</span>
                         </button>
                       )}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleCreateArrowFromObject(obj, 'right');
+                        }}
+                        className="px-2.5 py-1 bg-violet-600 text-white rounded-md text-[11px] font-bold flex items-center gap-1 shadow-md hover:bg-violet-700 active:scale-95 transition-all cursor-pointer"
+                        title="Add connected arrow from this text"
+                      >
+                        <ArrowRight className="w-3 h-3" />
+                        <span>+ Arrow</span>
+                      </button>
                     </div>
                   )}
 
@@ -4414,6 +4966,32 @@ export default function App() {
                       {obj.text}
                     </div>
                   )}
+
+                  {showPorts &&
+                    (['top', 'right', 'bottom', 'left'] as AnchorPort[]).map(
+                      (port) => (
+                        <button
+                          key={port}
+                          type="button"
+                          onMouseDown={(e) =>
+                            handleStartConnectorFromPort(e, obj, port)
+                          }
+                          onTouchStart={(e) =>
+                            handleStartConnectorFromPortTouch(e, obj, port)
+                          }
+                          title={`Drag arrow from text (${port})`}
+                          className={`w-3.5 h-3.5 rounded-full bg-white border-2 border-indigo-600 hover:scale-125 transition-transform absolute cursor-crosshair z-20 ${
+                            port === 'top'
+                              ? '-top-1.5 left-1/2 -translate-x-1/2'
+                              : port === 'right'
+                              ? 'top-1/2 -right-1.5 -translate-y-1/2'
+                              : port === 'bottom'
+                              ? '-bottom-1.5 left-1/2 -translate-x-1/2'
+                              : 'top-1/2 -left-1.5 -translate-y-1/2'
+                          }`}
+                        />
+                      )
+                    )}
 
                   {isSelected && !obj.locked && (
                     <div
@@ -4643,8 +5221,11 @@ export default function App() {
                           onMouseDown={(e) =>
                             handleStartConnectorFromPort(e, obj, port)
                           }
+                          onTouchStart={(e) =>
+                            handleStartConnectorFromPortTouch(e, obj, port)
+                          }
                           title={`Drag to connect (${port})`}
-                          className={`w-3 h-3 rounded-full bg-white border-2 border-indigo-600 hover:scale-125 transition-transform absolute cursor-crosshair z-20 ${
+                          className={`w-3.5 h-3.5 rounded-full bg-white border-2 border-indigo-600 hover:scale-125 transition-transform absolute cursor-crosshair z-20 ${
                             port === 'top'
                               ? '-top-1.5 left-1/2 -translate-x-1/2'
                               : port === 'right'

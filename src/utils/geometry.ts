@@ -168,6 +168,7 @@ export function buildConnectorGeometry(
 ): {
   pathD: string;
   midPoint: Point;
+  startAngleDeg: number;
   endAngleDeg: number;
 } {
   const dx = to.x - from.x;
@@ -179,6 +180,7 @@ export function buildConnectorGeometry(
     return {
       pathD: `M ${from.x} ${from.y} L ${to.x} ${to.y}`,
       midPoint: { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 },
+      startAngleDeg: angle + 180,
       endAngleDeg: angle,
     };
   }
@@ -186,11 +188,13 @@ export function buildConnectorGeometry(
   if (curveStyle === 'elbow') {
     const midX = (from.x + to.x) / 2;
     const pathD = `M ${from.x} ${from.y} L ${midX} ${from.y} L ${midX} ${to.y} L ${to.x} ${to.y}`;
-    const angle = to.x >= midX ? 0 : 180;
+    const startAngle = from.x <= midX ? 180 : 0;
+    const endAngle = to.x >= midX ? 0 : 180;
     return {
       pathD,
       midPoint: { x: midX, y: (from.y + to.y) / 2 },
-      endAngleDeg: angle,
+      startAngleDeg: startAngle,
+      endAngleDeg: endAngle,
     };
   }
 
@@ -213,6 +217,15 @@ export function buildConnectorGeometry(
     y: 0.125 * from.y + 0.375 * c1.y + 0.375 * c2.y + 0.125 * to.y,
   };
 
+  // Tangent near t = 0 (from from to c1)
+  let stx = c1.x - from.x;
+  let sty = c1.y - from.y;
+  if (Math.hypot(stx, sty) < 1) {
+    stx = dx;
+    sty = dy;
+  }
+  const startAngleDeg = (Math.atan2(sty, stx) * 180) / Math.PI + 180;
+
   // Tangent near t = 1 (from c2 to to)
   let tx = to.x - c2.x;
   let ty = to.y - c2.y;
@@ -225,6 +238,7 @@ export function buildConnectorGeometry(
   return {
     pathD: `M ${from.x} ${from.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${to.x} ${to.y}`,
     midPoint,
+    startAngleDeg,
     endAngleDeg,
   };
 }

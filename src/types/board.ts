@@ -100,8 +100,10 @@ export interface ConnectorObject extends BaseBoardObject {
   toPoint: Point;
   label: string;
   color: BoardColorKey;
-  lineStyle: 'solid' | 'dashed';
+  lineStyle: 'solid' | 'dashed' | 'dotted';
   curveStyle: 'curved' | 'straight' | 'elbow';
+  arrowStart?: boolean;
+  arrowEnd?: boolean;
 }
 
 export interface PathObject extends BaseBoardObject {
