@@ -205,6 +205,7 @@ export interface BoardPage {
   createdAt: number;
   updatedAt: number;
   objects: BoardObject[];
+  deletedObjectIds?: string[];
   viewport?: {
     x: number;
     y: number;
@@ -219,12 +220,14 @@ export interface BoardProject {
   updatedAt: number;
   activePageId: string;
   pages: BoardPage[];
+  deletedPageIds?: string[];
 }
 
 export interface WorkspaceState {
   version: number;
   activeProjectId: string;
   projects: BoardProject[];
+  deletedProjectIds?: string[];
 }
 
 export interface RoomStatePayload {

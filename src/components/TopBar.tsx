@@ -1070,10 +1070,10 @@ export const TopBar: React.FC<TopBarProps> = ({
                   onOpenDriveModal();
                   setToolsMenuOpen(false);
                 }}
-                className="w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 flex items-center gap-2 cursor-pointer transition-colors"
+                className="w-full px-3 py-2 text-left text-xs font-semibold text-emerald-700 hover:bg-emerald-50 flex items-center gap-2 cursor-pointer transition-colors"
               >
                 <Cloud className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Cloud Storage Settings</span>
+                <span>Cloud Sync (Active)</span>
               </button>
             </div>
           )}
@@ -1198,34 +1198,22 @@ export const TopBar: React.FC<TopBarProps> = ({
           </button>
         </div>
 
-        {/* Google Drive Status / Manage Button (visible on md+) */}
-        {isDriveSignedIn ? (
-          <button
-            type="button"
-            onClick={onOpenDriveModal}
-            className="hidden md:flex px-2 py-1 text-xs font-medium text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-md transition-colors items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
-            title="Google Drive 5 TB Active (Click to manage cloud backups)"
-          >
-            {isAutosaving ? (
-              <RefreshCw className="w-3.5 h-3.5 text-emerald-600 animate-spin shrink-0" />
-            ) : (
-              <Cloud className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-            )}
-            <span className="hidden md:inline font-semibold text-[11px]">
-              {isAutosaving ? 'Saving...' : 'Drive'}
-            </span>
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={onOpenDriveModal}
-            className="hidden md:flex px-2 py-1 text-xs font-medium text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200/80 border border-slate-200/80 rounded-md transition-colors items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
-            title="Google Drive Cloud Backup (Click to configure or sign in)"
-          >
-            <Cloud className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-            <span className="hidden sm:inline text-[11px]">Drive</span>
-          </button>
-        )}
+        {/* Permanent Cloud Sync Status Button (visible on md+) */}
+        <button
+          type="button"
+          onClick={onOpenDriveModal}
+          className="hidden md:flex px-2 py-1 text-xs font-medium text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-md transition-colors items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+          title="Permanent Cloud Sync Active (Desktop & Phone Synced Automatically — No Login Needed)"
+        >
+          {isAutosaving ? (
+            <RefreshCw className="w-3.5 h-3.5 text-emerald-600 animate-spin shrink-0" />
+          ) : (
+            <Cloud className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+          )}
+          <span className="hidden md:inline font-semibold text-[11px]">
+            {isAutosaving ? 'Syncing...' : 'Cloud Synced'}
+          </span>
+        </button>
 
         {/* Collaborators Avatar Stack */}
         <div className="hidden sm:flex items-center -space-x-1.5 shrink-0">

@@ -106,18 +106,21 @@ import {
   saveWorkspaceToStorage,
   fetchWorkspaceFromServer,
   mergeAndResolveWorkspaces,
+  mergePageObjects,
   createBlankPage,
   createNewProject,
 } from './services/workspaceService';
 
-const COLLABORATOR_NAMES = [
+const LEGACY_FAKE_NAMES = new Set([
+  'Sora Takahashi',
   'Aria Vance',
   'Kieran Patel',
   'Nadia Lindqvist',
   'Julian Mercer',
   'Zoe Alverez',
   'Marcus Sterling',
-];
+  'Collaborator',
+]);
 
 const COLLABORATOR_COLORS = [
   '#4F46E5',
@@ -130,12 +133,23 @@ const COLLABORATOR_COLORS = [
 
 function getInitialUser(): CollaboratorPresence {
   const savedId = sessionStorage.getItem('cj_user_id');
-  const savedName = localStorage.getItem('cj_user_name');
+  let savedName = localStorage.getItem('cj_user_name');
   const savedColor = localStorage.getItem('cj_user_color');
 
+  // Remove any legacy demo placeholder names so user only ever sees their own identity
+  if (savedName && LEGACY_FAKE_NAMES.has(savedName.trim())) {
+    localStorage.removeItem('cj_user_name');
+    savedName = null;
+  }
+
+  const isMobileDevice =
+    typeof window !== 'undefined' &&
+    (window.innerWidth < 768 || /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent));
+  const defaultDeviceName = isMobileDevice ? 'Ankit (Phone)' : 'Ankit (Desktop)';
+
   const id = savedId || `u-${Math.random().toString(36).slice(2, 9)}`;
-  const idx = Math.floor(Math.random() * COLLABORATOR_NAMES.length);
-  const name = savedName || COLLABORATOR_NAMES[idx];
+  const idx = Math.floor(Math.random() * COLLABORATOR_COLORS.length);
+  const name = savedName || defaultDeviceName;
   const color = savedColor || COLLABORATOR_COLORS[idx];
 
   sessionStorage.setItem('cj_user_id', id);
@@ -296,8 +310,85 @@ export default function App() {
   }, [workspace]);
 
   const isWorkspaceHydratedRef = useRef<boolean>(false);
+  const activeProjectIdRef = useRef<string>(activeProjectId);
+  useEffect(() => {
+    activeProjectIdRef.current = activeProjectId;
+  }, [activeProjectId]);
+  const activePageIdRef = useRef<string>(activePageId);
+  useEffect(() => {
+    activePageIdRef.current = activePageId;
+  }, [activePageId]);
 
-  // Helper to build and persist the current live snapshot immediately
+  // Pulls latest workspace from Cloud Server & merges item-by-item with local state
+  const handleSyncFromCloudNow = useCallback(async () => {
+    try {
+      const [idbWs, serverWs] = await Promise.all([
+        loadWorkspaceFromIndexedDB(),
+        fetchWorkspaceFromServer(),
+      ]);
+      const curProjId = activeProjectIdRef.current;
+      const curPageId = activePageIdRef.current;
+      const curObjs = objectsRef.current;
+      const curVp = viewportRef.current;
+
+      // Build current in-memory snapshot without artificially bumping updatedAt
+      const currentSnap: WorkspaceState = {
+        ...workspaceRef.current,
+        activeProjectId: curProjId,
+        projects: workspaceRef.current.projects.map((p) =>
+          p.id !== curProjId
+            ? p
+            : {
+                ...p,
+                activePageId: curPageId,
+                pages: p.pages.map((pg) =>
+                  pg.id !== curPageId
+                    ? pg
+                    : {
+                        ...pg,
+                        objects: curObjs,
+                        viewport: curVp,
+                      }
+                ),
+              }
+        ),
+      };
+
+      const merged = mergeAndResolveWorkspaces([currentSnap, idbWs, serverWs]);
+      setWorkspace(merged);
+      workspaceRef.current = merged;
+      saveWorkspaceToStorage(merged, true);
+
+      const targetProj =
+        merged.projects.find((p) => p.id === curProjId) ||
+        merged.projects.find((p) => p.id === merged.activeProjectId) ||
+        merged.projects[0];
+      const targetPg =
+        targetProj?.pages.find((pg) => pg.id === curPageId) ||
+        targetProj?.pages.find((pg) => pg.id === targetProj.activePageId) ||
+        targetProj?.pages[0];
+
+      if (targetProj && targetPg) {
+        if (targetProj.id !== curProjId) setActiveProjectId(targetProj.id);
+        if (targetPg.id !== curPageId) {
+          setActivePageId(targetPg.id);
+          setRoomId(targetPg.id);
+        }
+        if (targetPg.name && targetPg.name !== 'Page 1') {
+          setBoardTitle(targetPg.name);
+        }
+        const mergedPageObjs = Array.isArray(targetPg.objects) ? targetPg.objects : [];
+        if (JSON.stringify(mergedPageObjs) !== JSON.stringify(objectsRef.current)) {
+          setObjects(mergedPageObjs);
+          objectsRef.current = mergedPageObjs;
+        }
+      }
+    } catch (err) {
+      console.warn('Background cloud sync check warning:', err);
+    }
+  }, []);
+
+  // Helper to build and persist the current live snapshot immediately & sync with cloud
   const handleSaveWorkspaceNow = useCallback(() => {
     const curObjects = objectsRef.current;
     const curVp = viewportRef.current;
@@ -331,11 +422,16 @@ export default function App() {
       saveWorkspaceToStorage(updatedState, true);
       return updatedState;
     });
-  }, [activePageId, activeProjectId, boardTitle]);
+    // Also pull & merge any items added on other devices
+    setTimeout(() => {
+      handleSyncFromCloudNow();
+    }, 150);
+  }, [activePageId, activeProjectId, boardTitle, handleSyncFromCloudNow]);
 
-  // Debounced auto-save of current page canvas objects & viewport to Local Storage, IndexedDB & Server
+  // Debounced auto-save of current page canvas objects & boardTitle to Local Storage, IndexedDB & Server
+  // IMPORTANT: Never runs before initial Cloud hydration, and panning/zooming viewport does NOT bump updatedAt!
   useEffect(() => {
-    if (!isWorkspaceHydratedRef.current && objects.length === 0) {
+    if (!isWorkspaceHydratedRef.current) {
       return;
     }
     const timeout = setTimeout(() => {
@@ -349,7 +445,7 @@ export default function App() {
               ...pg,
               name: boardTitle || pg.name,
               objects,
-              viewport,
+              viewport: viewportRef.current,
               updatedAt: now,
             };
           });
@@ -369,10 +465,38 @@ export default function App() {
         saveWorkspaceToStorage(updatedState);
         return updatedState;
       });
-    }, 200);
+    }, 250);
 
     return () => clearTimeout(timeout);
-  }, [objects, viewport, activeProjectId, activePageId, boardTitle]);
+  }, [objects, activeProjectId, activePageId, boardTitle]);
+
+  // Save viewport pan/zoom locally WITHOUT bumping page updatedAt timestamp
+  useEffect(() => {
+    if (!isWorkspaceHydratedRef.current) return;
+    const timeout = setTimeout(() => {
+      setWorkspace((prevWs) => {
+        const nextProjects = prevWs.projects.map((proj) => {
+          if (proj.id !== activeProjectId) return proj;
+          return {
+            ...proj,
+            pages: proj.pages.map((pg) =>
+              pg.id === activePageId ? { ...pg, viewport } : pg
+            ),
+          };
+        });
+        const updatedState: WorkspaceState = {
+          ...prevWs,
+          projects: nextProjects,
+        };
+        workspaceRef.current = updatedState;
+        try {
+          localStorage.setItem('canvasjam_workspace_v2', JSON.stringify(updatedState));
+        } catch {}
+        return updatedState;
+      });
+    }, 600);
+    return () => clearTimeout(timeout);
+  }, [viewport, activeProjectId, activePageId]);
 
   // Hydrate workspace from LocalStorage + IndexedDB + Server Cloud on mount
   useEffect(() => {
@@ -421,7 +545,11 @@ export default function App() {
               wsRef.current.readyState === WebSocket.OPEN
             ) {
               wsRef.current.send(
-                JSON.stringify({ type: 'board:replace_all', objects: restoredObjects })
+                JSON.stringify({
+                  type: 'board:replace_all',
+                  objects: restoredObjects,
+                  deletedIds: activePg.deletedObjectIds || [],
+                })
               );
             }
           }
@@ -432,6 +560,40 @@ export default function App() {
       cancelled = true;
     };
   }, []);
+
+  // Automatic Cross-Device Cloud Sync on Phone Wakeup, Tab Focus, Reconnect, and Interval
+  useEffect(() => {
+    const onFocusOrWake = () => {
+      if (isWorkspaceHydratedRef.current) {
+        handleSyncFromCloudNow();
+      }
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && isWorkspaceHydratedRef.current) {
+        handleSyncFromCloudNow();
+      }
+    };
+    window.addEventListener('focus', onFocusOrWake);
+    window.addEventListener('online', onFocusOrWake);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    const syncInterval = window.setInterval(() => {
+      if (
+        isWorkspaceHydratedRef.current &&
+        document.visibilityState === 'visible' &&
+        interactionRef.current.mode === 'none'
+      ) {
+        handleSyncFromCloudNow();
+      }
+    }, 6000);
+
+    return () => {
+      window.removeEventListener('focus', onFocusOrWake);
+      window.removeEventListener('online', onFocusOrWake);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.clearInterval(syncInterval);
+    };
+  }, [handleSyncFromCloudNow]);
 
   const handleExportWorkspaceBackup = useCallback(() => {
     const curObjects = objectsRef.current;
@@ -1134,20 +1296,34 @@ export default function App() {
             case 'room:init':
             case 'room:sync': {
               const state: RoomStatePayload = msg.state;
-              if (state.title && state.title !== 'Canvas Board') {
+              if (state.title && state.title !== 'Canvas Board' && state.title !== 'Page 1') {
                 setBoardTitle(state.title);
               }
-              if (state.objects && state.objects.length > 0) {
-                if (objectsRef.current && objectsRef.current.length > 0) {
-                  if (ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({ type: 'board:replace_all', objects: objectsRef.current }));
-                  }
-                } else {
-                  setObjects(state.objects);
-                }
-              } else if (objectsRef.current && objectsRef.current.length > 0) {
-                if (ws.readyState === WebSocket.OPEN) {
-                  ws.send(JSON.stringify({ type: 'board:replace_all', objects: objectsRef.current }));
+              const curProj = workspaceRef.current.projects.find(
+                (p) => p.id === activeProjectIdRef.current
+              );
+              const curPg = curProj?.pages.find(
+                (pg) => pg.id === activePageIdRef.current
+              );
+              const delIds = curPg?.deletedObjectIds || [];
+              const serverObjs = Array.isArray(state.objects) ? state.objects : [];
+              const localObjs = Array.isArray(objectsRef.current) ? objectsRef.current : [];
+
+              if (serverObjs.length > 0 || localObjs.length > 0) {
+                const mergedObjs = mergePageObjects(localObjs, serverObjs, delIds);
+                setObjects(mergedObjs);
+                objectsRef.current = mergedObjs;
+                if (
+                  mergedObjs.length > serverObjs.length &&
+                  ws.readyState === WebSocket.OPEN
+                ) {
+                  ws.send(
+                    JSON.stringify({
+                      type: 'board:replace_all',
+                      objects: mergedObjs,
+                      deletedIds: delIds,
+                    })
+                  );
                 }
               }
               setPeers(state.users.filter((u) => u.id !== currentUser.id));
@@ -1435,14 +1611,41 @@ export default function App() {
         return;
       }
 
-      // No drive files affected, delete directly
+      // No drive files affected, delete directly and record tombstone IDs so deleted items stay deleted across devices
       pushUndoSnapshot(objectsRef.current);
-      setObjects((prev) => {
-        const next = prev.filter((o) => !idsToRemove.includes(o.id));
-        objectsRef.current = next;
-        return next;
-      });
+      const nextObjs = objectsRef.current.filter((o) => !idsToRemove.includes(o.id));
+      objectsRef.current = nextObjs;
+      setObjects(nextObjs);
       setSelectedIds((prev) => prev.filter((id) => !idsToRemove.includes(id)));
+      const now = Date.now();
+      setWorkspace((prevWs) => {
+        const updatedWs: WorkspaceState = {
+          ...prevWs,
+          projects: prevWs.projects.map((p) =>
+            p.id !== activeProjectIdRef.current
+              ? p
+              : {
+                  ...p,
+                  updatedAt: now,
+                  pages: p.pages.map((pg) =>
+                    pg.id !== activePageIdRef.current
+                      ? pg
+                      : {
+                          ...pg,
+                          objects: nextObjs,
+                          deletedObjectIds: Array.from(
+                            new Set([...(pg.deletedObjectIds || []), ...idsToRemove])
+                          ).slice(-500),
+                          updatedAt: now,
+                        }
+                  ),
+                }
+          ),
+        };
+        workspaceRef.current = updatedWs;
+        saveWorkspaceToStorage(updatedWs, true);
+        return updatedWs;
+      });
       sendWs({ type: 'object:delete', ids: idsToRemove });
     },
     [pushUndoSnapshot, sendWs]
@@ -3517,9 +3720,13 @@ export default function App() {
             ...workspace,
             activeProjectId: nextActiveProj.id,
             projects: remaining,
+            deletedProjectIds: Array.from(
+              new Set([...(workspace.deletedProjectIds || []), projectId])
+            ).slice(-200),
           };
           setWorkspace(updatedWs);
-          saveWorkspaceToStorage(updatedWs);
+          workspaceRef.current = updatedWs;
+          saveWorkspaceToStorage(updatedWs, true);
 
           setActiveProjectId(nextActiveProj.id);
           setActivePageId(nextActivePageId);
@@ -3708,11 +3915,15 @@ export default function App() {
                   ...p,
                   activePageId: nextActivePage.id,
                   pages: remainingPages,
+                  deletedPageIds: Array.from(
+                    new Set([...(p.deletedPageIds || []), pageId])
+                  ).slice(-200),
                   updatedAt: Date.now(),
                 };
               }),
             };
-            saveWorkspaceToStorage(updated);
+            workspaceRef.current = updated;
+            saveWorkspaceToStorage(updated, true);
             return updated;
           });
 
@@ -5292,6 +5503,12 @@ export default function App() {
               peer.cursorChat &&
               (!peer.cursorChatUpdatedAt ||
                 Date.now() - peer.cursorChatUpdatedAt < 18000);
+            const isRecentlyActive =
+              hasFreshChat ||
+              peer.highFiveActive ||
+              (peer.lastSeen && Date.now() - peer.lastSeen < 6000);
+
+            if (!isRecentlyActive) return null;
 
             return (
               <div
@@ -5600,6 +5817,8 @@ export default function App() {
         }}
         onSignIn={handleGoogleSignIn}
         onSignOut={handleGoogleLogout}
+        onSyncFromCloudNow={handleSyncFromCloudNow}
+        onExportWorkspaceBackup={handleExportWorkspaceBackup}
       />
 
       {/* Destructive Operation User Confirmation Dialog (MANDATORY for Workspace APIs) */}

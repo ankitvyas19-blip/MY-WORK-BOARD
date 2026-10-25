@@ -79,20 +79,38 @@ export function normalizeWorkspace(ws: WorkspaceState): WorkspaceState {
     return getDefaultWorkspace();
   }
 
-  const normalizedProjects = ws.projects.map((p) => {
+  const deletedProjectSet = new Set(Array.isArray(ws.deletedProjectIds) ? ws.deletedProjectIds : []);
+  const filteredProjects = ws.projects.filter((p) => p && p.id && !deletedProjectSet.has(p.id));
+  const projectsToUse = filteredProjects.length > 0 ? filteredProjects : ws.projects;
+
+  const normalizedProjects = projectsToUse.map((p) => {
+    const deletedPageSet = new Set(Array.isArray(p.deletedPageIds) ? p.deletedPageIds : []);
+    const rawPages = Array.isArray(p.pages)
+      ? p.pages.filter((pg) => pg && pg.id && !deletedPageSet.has(pg.id))
+      : [];
+
     const pages =
-      Array.isArray(p.pages) && p.pages.length > 0
-        ? p.pages.map((pg) => ({
-            ...pg,
-            objects: Array.isArray(pg.objects) ? pg.objects : [],
-            viewport: pg.viewport || { x: 60, y: 40, zoom: 1 },
-          }))
+      rawPages.length > 0
+        ? rawPages.map((pg) => {
+            const delObjs = Array.isArray(pg.deletedObjectIds) ? pg.deletedObjectIds : [];
+            const delObjSet = new Set(delObjs);
+            const cleanObjs = Array.isArray(pg.objects)
+              ? pg.objects.filter((o) => o && o.id && !delObjSet.has(o.id))
+              : [];
+            return {
+              ...pg,
+              objects: cleanObjs,
+              deletedObjectIds: delObjs.slice(-500),
+              viewport: pg.viewport || { x: 60, y: 40, zoom: 1 },
+            };
+          })
         : [createBlankPage('Page 1')];
 
     const activePg = pages.find((pg) => pg.id === p.activePageId) || pages[0];
     return {
       ...p,
       pages,
+      deletedPageIds: Array.isArray(p.deletedPageIds) ? p.deletedPageIds.slice(-200) : [],
       activePageId: activePg.id,
     };
   });
@@ -105,6 +123,7 @@ export function normalizeWorkspace(ws: WorkspaceState): WorkspaceState {
     version: 2,
     activeProjectId: activeProj.id,
     projects: normalizedProjects,
+    deletedProjectIds: Array.isArray(ws.deletedProjectIds) ? ws.deletedProjectIds.slice(-200) : [],
   };
 }
 
@@ -308,7 +327,75 @@ export async function fetchWorkspaceFromServer(): Promise<WorkspaceState | null>
 }
 
 /**
- * Merges LocalStorage, IndexedDB, and Server workspaces so no project, page, text, or photo is ever lost.
+ * Merges two arrays of BoardObjects by ID, keeping the newest updatedAt per object
+ * and excluding any intentionally deleted object IDs.
+ */
+export function mergePageObjects(
+  objsA: BoardObject[] | undefined,
+  objsB: BoardObject[] | undefined,
+  deletedIds: string[] = []
+): BoardObject[] {
+  const deletedSet = new Set(deletedIds);
+  const map = new Map<string, BoardObject>();
+
+  const listA = Array.isArray(objsA) ? objsA : [];
+  const listB = Array.isArray(objsB) ? objsB : [];
+
+  for (const item of listA) {
+    if (!item || !item.id || deletedSet.has(item.id)) continue;
+    map.set(item.id, JSON.parse(JSON.stringify(item)));
+  }
+
+  for (const item of listB) {
+    if (!item || !item.id || deletedSet.has(item.id)) continue;
+    const existing = map.get(item.id);
+    if (!existing) {
+      map.set(item.id, JSON.parse(JSON.stringify(item)));
+    } else {
+      const existingTs = existing.updatedAt || 0;
+      const incomingTs = item.updatedAt || 0;
+      if (incomingTs >= existingTs) {
+        map.set(item.id, JSON.parse(JSON.stringify(item)));
+      }
+    }
+  }
+
+  return Array.from(map.values()).sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0));
+}
+
+function mergeTwoPages(pageA: BoardPage, pageB: BoardPage): BoardPage {
+  const combinedDeleted = Array.from(
+    new Set([...(pageA.deletedObjectIds || []), ...(pageB.deletedObjectIds || [])])
+  ).slice(-500);
+
+  const mergedObjects = mergePageObjects(pageA.objects, pageB.objects, combinedDeleted);
+
+  const tsA = pageA.updatedAt || 0;
+  const tsB = pageB.updatedAt || 0;
+  const newerPage = tsB > tsA ? pageB : pageA;
+  const olderPage = tsB > tsA ? pageA : pageB;
+
+  const isDefaultPageName = (n?: string) => !n || n === 'Page 1' || n === 'Canvas Board';
+  const resolvedName =
+    !isDefaultPageName(newerPage.name)
+      ? newerPage.name
+      : !isDefaultPageName(olderPage.name)
+      ? olderPage.name
+      : newerPage.name || 'Page 1';
+
+  return {
+    ...JSON.parse(JSON.stringify(newerPage)),
+    name: resolvedName,
+    objects: mergedObjects,
+    deletedObjectIds: combinedDeleted,
+    viewport: newerPage.viewport || olderPage.viewport || { x: 60, y: 40, zoom: 1 },
+    updatedAt: Math.max(tsA, tsB),
+  };
+}
+
+/**
+ * Merges LocalStorage, IndexedDB, and Server workspaces at the Project, Page, AND Object level
+ * so no project, page, text, arrow, or photo created on Desktop or Phone is ever lost.
  */
 export function mergeAndResolveWorkspaces(
   candidates: (WorkspaceState | null | undefined)[]
@@ -325,73 +412,74 @@ export function mergeAndResolveWorkspaces(
     return candidates.find((c): c is WorkspaceState => !!c) || getDefaultWorkspace();
   }
 
-  // Sort candidates by latest timestamp descending, then by total object count descending
+  // Sort candidates by total object count descending first if one has more objects, then by timestamp
   valid.sort((a, b) => {
     const objDiff = getWorkspaceTotalObjects(b) - getWorkspaceTotalObjects(a);
     const tsDiff = getWorkspaceLatestTimestamp(b) - getWorkspaceLatestTimestamp(a);
-    // If one workspace has objects and the other is completely empty, prefer the one with objects!
     if (getWorkspaceTotalObjects(a) === 0 && getWorkspaceTotalObjects(b) > 0) return 1;
     if (getWorkspaceTotalObjects(b) === 0 && getWorkspaceTotalObjects(a) > 0) return -1;
-    if (tsDiff !== 0) return tsDiff;
-    return objDiff;
+    if (objDiff !== 0) return objDiff;
+    return tsDiff;
   });
 
   const primary = valid[0];
   const mergedProjectsMap = new Map<string, BoardProject>();
+  const combinedDeletedProjects = new Set<string>();
 
-  // Start with primary projects in order, then merge pages/projects from other sources
+  for (const ws of valid) {
+    if (Array.isArray(ws.deletedProjectIds)) {
+      for (const delId of ws.deletedProjectIds) combinedDeletedProjects.add(delId);
+    }
+  }
+
+  // Merge all projects, pages, and individual objects across all candidate workspaces
   for (const ws of valid) {
     for (const proj of ws.projects) {
+      if (!proj || !proj.id || combinedDeletedProjects.has(proj.id)) continue;
       const existingProj = mergedProjectsMap.get(proj.id);
       if (!existingProj) {
         mergedProjectsMap.set(proj.id, JSON.parse(JSON.stringify(proj)));
       } else {
-        // Merge pages inside this project
+        const combinedDeletedPages = new Set<string>([
+          ...(existingProj.deletedPageIds || []),
+          ...(proj.deletedPageIds || []),
+        ]);
+
         const pageMap = new Map<string, BoardPage>();
         for (const pg of existingProj.pages) {
-          pageMap.set(pg.id, pg);
+          if (pg && pg.id && !combinedDeletedPages.has(pg.id)) {
+            pageMap.set(pg.id, pg);
+          }
         }
         for (const pg of proj.pages) {
+          if (!pg || !pg.id || combinedDeletedPages.has(pg.id)) continue;
           const existingPg = pageMap.get(pg.id);
           if (!existingPg) {
             pageMap.set(pg.id, JSON.parse(JSON.stringify(pg)));
           } else {
-            // Prefer the page version that has objects if the other is empty, or newer updatedAt
-            const existingCount = existingPg.objects?.length || 0;
-            const candidateCount = pg.objects?.length || 0;
-            if (existingCount === 0 && candidateCount > 0) {
-              pageMap.set(pg.id, JSON.parse(JSON.stringify(pg)));
-            } else if (
-              candidateCount > 0 &&
-              (pg.updatedAt || 0) > (existingPg.updatedAt || 0)
-            ) {
-              pageMap.set(pg.id, JSON.parse(JSON.stringify(pg)));
-            } else if (
-              existingCount === 0 &&
-              candidateCount === 0 &&
-              (pg.updatedAt || 0) > (existingPg.updatedAt || 0)
-            ) {
-              pageMap.set(pg.id, JSON.parse(JSON.stringify(pg)));
-            } else if (
-              existingCount > 0 &&
-              candidateCount === 0 &&
-              (pg.updatedAt || 0) > (existingPg.updatedAt || 0) &&
-              pg.name !== existingPg.name
-            ) {
-              // Keep existing objects AND apply newer renamed page title
-              pageMap.set(pg.id, {
-                ...JSON.parse(JSON.stringify(existingPg)),
-                name: pg.name,
-                updatedAt: pg.updatedAt,
-              });
-            }
+            pageMap.set(pg.id, mergeTwoPages(existingPg, pg));
           }
         }
+
         const mergedPages = Array.from(pageMap.values());
-        const newerProj = (proj.updatedAt || 0) > (existingProj.updatedAt || 0) ? proj : existingProj;
+        const newerProj =
+          (proj.updatedAt || 0) > (existingProj.updatedAt || 0) ? proj : existingProj;
+        const olderProj =
+          (proj.updatedAt || 0) > (existingProj.updatedAt || 0) ? existingProj : proj;
+
+        const isDefaultProjName = (n?: string) => !n || n === 'Main Project' || n === 'New Project';
+        const resolvedProjName =
+          !isDefaultProjName(newerProj.name)
+            ? newerProj.name
+            : !isDefaultProjName(olderProj.name)
+            ? olderProj.name
+            : newerProj.name || 'Main Project';
+
         mergedProjectsMap.set(proj.id, {
           ...newerProj,
-          pages: mergedPages,
+          name: resolvedProjName,
+          pages: mergedPages.length > 0 ? mergedPages : [createBlankPage('Page 1')],
+          deletedPageIds: Array.from(combinedDeletedPages).slice(-200),
           updatedAt: Math.max(existingProj.updatedAt || 0, proj.updatedAt || 0),
         });
       }
@@ -402,5 +490,6 @@ export function mergeAndResolveWorkspaces(
     version: 2,
     activeProjectId: primary.activeProjectId,
     projects: Array.from(mergedProjectsMap.values()),
+    deletedProjectIds: Array.from(combinedDeletedProjects).slice(-200),
   });
 }

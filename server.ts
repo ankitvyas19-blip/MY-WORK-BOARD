@@ -86,6 +86,130 @@ function getWorkspaceObjectCount(ws: any): number {
   return count;
 }
 
+function mergeServerPageObjects(
+  objsA: BoardObject[] | undefined,
+  objsB: BoardObject[] | undefined,
+  deletedIds: string[] = []
+): BoardObject[] {
+  const deletedSet = new Set(deletedIds);
+  const map = new Map<string, BoardObject>();
+
+  for (const item of Array.isArray(objsA) ? objsA : []) {
+    if (!item || !item.id || deletedSet.has(item.id)) continue;
+    map.set(item.id, JSON.parse(JSON.stringify(item)));
+  }
+
+  for (const item of Array.isArray(objsB) ? objsB : []) {
+    if (!item || !item.id || deletedSet.has(item.id)) continue;
+    const existing = map.get(item.id);
+    if (!existing || (item.updatedAt || 0) >= (existing.updatedAt || 0)) {
+      map.set(item.id, JSON.parse(JSON.stringify(item)));
+    }
+  }
+
+  return Array.from(map.values()).sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0));
+}
+
+function mergeServerWorkspaces(existingWs: any, incomingWs: any): any {
+  if (!existingWs || !Array.isArray(existingWs.projects) || existingWs.projects.length === 0) {
+    return incomingWs;
+  }
+  if (!incomingWs || !Array.isArray(incomingWs.projects) || incomingWs.projects.length === 0) {
+    return existingWs;
+  }
+
+  const combinedDeletedProjects = new Set<string>([
+    ...(Array.isArray(existingWs.deletedProjectIds) ? existingWs.deletedProjectIds : []),
+    ...(Array.isArray(incomingWs.deletedProjectIds) ? incomingWs.deletedProjectIds : []),
+  ]);
+
+  const mergedProjectsMap = new Map<string, any>();
+
+  for (const ws of [existingWs, incomingWs]) {
+    for (const proj of ws.projects) {
+      if (!proj || !proj.id || combinedDeletedProjects.has(proj.id)) continue;
+      const prevProj = mergedProjectsMap.get(proj.id);
+      if (!prevProj) {
+        mergedProjectsMap.set(proj.id, JSON.parse(JSON.stringify(proj)));
+      } else {
+        const combinedDeletedPages = new Set<string>([
+          ...(Array.isArray(prevProj.deletedPageIds) ? prevProj.deletedPageIds : []),
+          ...(Array.isArray(proj.deletedPageIds) ? proj.deletedPageIds : []),
+        ]);
+
+        const pageMap = new Map<string, any>();
+        for (const pg of Array.isArray(prevProj.pages) ? prevProj.pages : []) {
+          if (pg && pg.id && !combinedDeletedPages.has(pg.id)) {
+            pageMap.set(pg.id, pg);
+          }
+        }
+        for (const pg of Array.isArray(proj.pages) ? proj.pages : []) {
+          if (!pg || !pg.id || combinedDeletedPages.has(pg.id)) continue;
+          const prevPg = pageMap.get(pg.id);
+          if (!prevPg) {
+            pageMap.set(pg.id, JSON.parse(JSON.stringify(pg)));
+          } else {
+            const combinedDeletedObjs = Array.from(
+              new Set([
+                ...(Array.isArray(prevPg.deletedObjectIds) ? prevPg.deletedObjectIds : []),
+                ...(Array.isArray(pg.deletedObjectIds) ? pg.deletedObjectIds : []),
+              ])
+            ).slice(-500);
+            const mergedObjs = mergeServerPageObjects(
+              prevPg.objects,
+              pg.objects,
+              combinedDeletedObjs
+            );
+            const newerPg = (pg.updatedAt || 0) >= (prevPg.updatedAt || 0) ? pg : prevPg;
+            const olderPg = (pg.updatedAt || 0) >= (prevPg.updatedAt || 0) ? prevPg : pg;
+            const isDefPg = (n?: string) => !n || n === 'Page 1' || n === 'Canvas Board';
+            const pgName = !isDefPg(newerPg.name)
+              ? newerPg.name
+              : !isDefPg(olderPg.name)
+              ? olderPg.name
+              : newerPg.name || 'Page 1';
+            pageMap.set(pg.id, {
+              ...JSON.parse(JSON.stringify(newerPg)),
+              name: pgName,
+              objects: mergedObjs,
+              deletedObjectIds: combinedDeletedObjs,
+              updatedAt: Math.max(prevPg.updatedAt || 0, pg.updatedAt || 0),
+            });
+          }
+        }
+
+        const newerProj = (proj.updatedAt || 0) >= (prevProj.updatedAt || 0) ? proj : prevProj;
+        const olderProj = (proj.updatedAt || 0) >= (prevProj.updatedAt || 0) ? prevProj : proj;
+        const isDefProj = (n?: string) => !n || n === 'Main Project' || n === 'New Project';
+        const projName = !isDefProj(newerProj.name)
+          ? newerProj.name
+          : !isDefProj(olderProj.name)
+          ? olderProj.name
+          : newerProj.name || 'Main Project';
+
+        mergedProjectsMap.set(proj.id, {
+          ...newerProj,
+          name: projName,
+          pages: Array.from(pageMap.values()),
+          deletedPageIds: Array.from(combinedDeletedPages).slice(-200),
+          updatedAt: Math.max(prevProj.updatedAt || 0, proj.updatedAt || 0),
+        });
+      }
+    }
+  }
+
+  const mergedProjects = Array.from(mergedProjectsMap.values());
+  const activeProjId =
+    incomingWs.activeProjectId || existingWs.activeProjectId || mergedProjects[0]?.id;
+
+  return {
+    version: 2,
+    activeProjectId: activeProjId,
+    projects: mergedProjects,
+    deletedProjectIds: Array.from(combinedDeletedProjects).slice(-200),
+  };
+}
+
 function syncWorkspacePagesIntoRooms(ws: any) {
   if (!ws || !Array.isArray(ws.projects)) return;
   for (const proj of ws.projects) {
@@ -277,20 +401,13 @@ async function restoreWorkspaceFromCloudOnStartup() {
       }
     }
 
-    const localTs = getWorkspaceMaxTimestamp(localWs);
-    const cloudTs = getWorkspaceMaxTimestamp(cloudWs);
-    const localCount = getWorkspaceObjectCount(localWs);
-    const cloudCount = getWorkspaceObjectCount(cloudWs);
-
-    if (!localWs || cloudTs > localTs || (localCount === 0 && cloudCount > 0)) {
-      fs.writeFileSync(WORKSPACE_FILE, JSON.stringify(cloudWs, null, 2), 'utf-8');
-      syncWorkspacePagesIntoRooms(cloudWs);
-      console.log(
-        `Restored workspace from permanent cloud storage (${cloudWs.projects.length} projects, ${cloudCount} objects).`
-      );
-    } else {
-      syncWorkspacePagesIntoRooms(localWs);
-    }
+    const mergedStartupWs = localWs ? mergeServerWorkspaces(localWs, cloudWs) : cloudWs;
+    const mergedCount = getWorkspaceObjectCount(mergedStartupWs);
+    fs.writeFileSync(WORKSPACE_FILE, JSON.stringify(mergedStartupWs, null, 2), 'utf-8');
+    syncWorkspacePagesIntoRooms(mergedStartupWs);
+    console.log(
+      `Restored workspace from permanent cloud storage (${mergedStartupWs.projects.length} projects, ${mergedCount} objects).`
+    );
   } catch (err) {
     console.warn('Startup cloud restore check skipped:', err);
   }
@@ -526,22 +643,36 @@ async function startServer() {
         return res.status(400).json({ error: 'Invalid workspace payload' });
       }
 
+      let existing: any = null;
+      if (fs.existsSync(WORKSPACE_FILE)) {
+        try {
+          existing = JSON.parse(fs.readFileSync(WORKSPACE_FILE, 'utf-8'));
+        } catch {
+          existing = null;
+        }
+      }
+
       // Guard against an unhydrated blank workspace overwriting existing saved data
       const incomingTs = getWorkspaceMaxTimestamp(incoming);
       const incomingCount = getWorkspaceObjectCount(incoming);
-      if (incomingTs === 0 && incomingCount === 0 && fs.existsSync(WORKSPACE_FILE)) {
-        try {
-          const existing = JSON.parse(fs.readFileSync(WORKSPACE_FILE, 'utf-8'));
-          if (getWorkspaceObjectCount(existing) > 0 || getWorkspaceMaxTimestamp(existing) > 0) {
-            return res.json({ success: true, skippedBlankOverwrite: true, savedAt: Date.now() });
-          }
-        } catch {}
+      if (incomingTs === 0 && incomingCount === 0 && existing) {
+        if (getWorkspaceObjectCount(existing) > 0 || getWorkspaceMaxTimestamp(existing) > 0) {
+          return res.json({
+            success: true,
+            skippedBlankOverwrite: true,
+            savedAt: Date.now(),
+            workspace: existing,
+          });
+        }
       }
 
-      fs.writeFileSync(WORKSPACE_FILE, JSON.stringify(incoming, null, 2), 'utf-8');
-      syncWorkspacePagesIntoRooms(incoming);
-      scheduleCloudBackup(incoming);
-      res.json({ success: true, savedAt: Date.now() });
+      // Smart object-level merge between existing server workspace and incoming device workspace
+      const merged = existing ? mergeServerWorkspaces(existing, incoming) : incoming;
+
+      fs.writeFileSync(WORKSPACE_FILE, JSON.stringify(merged, null, 2), 'utf-8');
+      syncWorkspacePagesIntoRooms(merged);
+      scheduleCloudBackup(merged);
+      res.json({ success: true, savedAt: Date.now(), workspace: merged });
     } catch (e) {
       res.status(500).json({ error: 'Failed to save workspace' });
     }
@@ -857,17 +988,23 @@ async function startServer() {
 
           case 'board:replace_all': {
             if (Array.isArray(data.objects)) {
-              room.objects = cloneObjects(data.objects);
+              if (data.forceReplace) {
+                room.objects = cloneObjects(data.objects);
+              } else {
+                const currentObjs = Array.from(room.objects.values());
+                const mergedObjs = mergeServerPageObjects(
+                  currentObjs,
+                  data.objects,
+                  Array.isArray(data.deletedIds) ? data.deletedIds : []
+                );
+                room.objects = cloneObjects(mergedObjs);
+              }
               scheduleSaveRooms();
               const fullState = serializeRoom(room);
-              broadcastToRoom(
-                conn.roomId,
-                {
-                  type: 'room:sync',
-                  state: fullState,
-                },
-                ws
-              );
+              broadcastToRoom(conn.roomId, {
+                type: 'room:sync',
+                state: fullState,
+              });
             }
             break;
           }
