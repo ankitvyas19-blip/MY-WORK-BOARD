@@ -401,10 +401,40 @@ async function restoreWorkspaceFromCloudOnStartup() {
       }
     }
 
-    const mergedStartupWs = localWs ? mergeServerWorkspaces(localWs, cloudWs) : cloudWs;
+    let mergedStartupWs = localWs ? mergeServerWorkspaces(localWs, cloudWs) : cloudWs;
+
+    // Also merge the full 40-item Desktop snapshot (426f496) in case an older phone tab overwrote cloud-data before refresh
+    try {
+      const snapRes = await fetch(
+        `https://api.github.com/repos/${GH_REPO}/contents/${GH_FILE_PATH}?ref=426f496`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: 'application/vnd.github+json',
+            'User-Agent': 'CanvasJam-Cloud-Persistence',
+          },
+        }
+      );
+      if (snapRes.ok) {
+        const snapMeta: any = await snapRes.json();
+        if (snapMeta && snapMeta.content) {
+          const snapRaw = Buffer.from(snapMeta.content.replace(/\n/g, ''), 'base64').toString(
+            'utf-8'
+          );
+          const snapWs = JSON.parse(snapRaw);
+          if (snapWs && Array.isArray(snapWs.projects)) {
+            mergedStartupWs = mergeServerWorkspaces(snapWs, mergedStartupWs);
+          }
+        }
+      }
+    } catch {}
+
     const mergedCount = getWorkspaceObjectCount(mergedStartupWs);
     fs.writeFileSync(WORKSPACE_FILE, JSON.stringify(mergedStartupWs, null, 2), 'utf-8');
     syncWorkspacePagesIntoRooms(mergedStartupWs);
+    if (mergedCount > getWorkspaceObjectCount(cloudWs)) {
+      scheduleCloudBackup(mergedStartupWs);
+    }
     console.log(
       `Restored workspace from permanent cloud storage (${mergedStartupWs.projects.length} projects, ${mergedCount} objects).`
     );
