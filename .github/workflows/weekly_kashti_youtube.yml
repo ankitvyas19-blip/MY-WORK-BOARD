@@ -1,0 +1,49 @@
+name: "Kashti Music Studio — Weekly Zero-Touch YouTube Release"
+
+on:
+  # Runs automatically every Friday at 06:30 UTC (12:00 PM IST)
+  schedule:
+    - cron: "30 6 * * 5"
+  # Also allows 1-click manual trigger from the GitHub Actions tab
+  workflow_dispatch:
+    inputs:
+      week_number:
+        description: "Week number from weekly_calendar.json (0 = auto-pick next week)"
+        required: false
+        default: "0"
+
+jobs:
+  produce-and-upload-music-video:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11 & FFmpeg
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install FFmpeg and YouTube Data API Dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg
+          pip install google-api-python-client google-auth-oauthlib google-auth-httplib2
+
+      - name: Run 100% Zero-Touch Weekly Music Video Pipeline
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+        run: |
+          WEEK_ARG="${{ github.event.inputs.week_number || '0' }}"
+          python3 kashti-music-studio/kashti_auto_studio.py --mode zero-touch --week "$WEEK_ARG"
+
+      - name: Upload Rendered MP4 as Build Artifact (Backup)
+        uses: actions/upload-artifact@v4
+        with:
+          name: kashti-weekly-music-video
+          path: kashti-music-studio/output/*.mp4
+          retention-days: 14

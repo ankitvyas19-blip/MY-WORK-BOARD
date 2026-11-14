@@ -1,0 +1,71 @@
+{
+  "channel_handle": "@kashtimusicstudio",
+  "channel_name": "Kashti Music Studio",
+  "schedule_cron": "Every Friday 12:00 PM IST",
+  "weeks": [
+    {
+      "week": 1,
+      "episode_id": "ep01_kids_hanuman_chalisa",
+      "title": "Mera Dost Bal Hanuman - Kids Hanuman Chalisa",
+      "theme_prompt": "4-5 year old kids playing with cute photorealistic live-action child form of Lord Bal Hanuman in a sunlit mango garden, hide and seek, eating mangoes, and twilight protection with glowing gada.",
+      "music_style": "Upbeat Indian Kids Pop, Bouncy Dholak, Bansuri Flute, Toy Xylophone, Handclaps, 118 BPM",
+      "status": "ready"
+    },
+    {
+      "week": 2,
+      "episode_id": "ep02_naughty_kanha_makhan_chor",
+      "title": "Naughty Little Kanha - Makhan Chor Kids Party Song",
+      "theme_prompt": "Photorealistic live-action cute 4-year-old toddler Lord Bal Krishna with peacock feather crown helping village kids reach the hanging butter pot, dancing in gentle rain, and feeding puppies.",
+      "music_style": "Playful Bansuri Flute, Dholak Beats, Kids Giggling Choir, Bouncy Folk Pop, 122 BPM",
+      "status": "planned"
+    },
+    {
+      "week": 3,
+      "episode_id": "ep03_best_friend_bal_ganesh",
+      "title": "My Best Friend Bal Ganesh - Modak & Rainbow Magic",
+      "theme_prompt": "Photorealistic live-action adorable child Bal Ganesh and his cute real mouse friend helping 4-5 year old kids paint rainbows, eat sweet modaks, and dance in a festive courtyard.",
+      "music_style": "Catchy Maharashtrian Lezim + Kids Xylophone Pop, Dhol-Tasha Lite, 120 BPM",
+      "status": "planned"
+    },
+    {
+      "week": 4,
+      "episode_id": "ep04_little_ram_lakshman_adventure",
+      "title": "Little Ram & Lakshman - Sunshine Orchard Adventure",
+      "theme_prompt": "Photorealistic live-action 5-year-old princes Ram and Lakshman befriending squirrels, deer, and colorful birds alongside happy children in a golden sunlit forest meadow.",
+      "music_style": "Warm Acoustic Folk, Sitar Lite, Flute, Joyful Children Singalong, 115 BPM",
+      "status": "planned"
+    },
+    {
+      "week": 5,
+      "episode_id": "ep05_bhole_baba_damru_beats",
+      "title": "Bhole Baba Damru Beats - Kids Dance Bhajan",
+      "theme_prompt": "Photorealistic live-action cute child form of Bholenath playing a tiny damru in a flower-filled valley while 4-5 year old kids clap and dance around a warm evening bonfire.",
+      "music_style": "Energetic Damru Percussion, Bouncy Electronic Kids Folk, Bell Chimes, 124 BPM",
+      "status": "planned"
+    },
+    {
+      "week": 6,
+      "episode_id": "ep06_gayatri_mantra_morning_sunshine",
+      "title": "Gayatri Mantra Morning Magic - Rise & Shine Kids Song",
+      "theme_prompt": "Photorealistic live-action 4-5 year old kids waking up to golden morning sunbeams, watering sunflowers, feeding birds, and smiling with glowing morning energy.",
+      "music_style": "Soothing Morning Bansuri, Acoustic Guitar, Birdsong, Upbeat Kids Chorus, 108 BPM",
+      "status": "planned"
+    },
+    {
+      "week": 7,
+      "episode_id": "ep07_maa_saraswati_musical_abc",
+      "title": "Maa Saraswati Musical Veena & Kids Learning Song",
+      "theme_prompt": "Photorealistic live-action magical white swan and floating golden musical notes inspiring happy 4-5 year old children painting, reading picture books, and playing tiny instruments.",
+      "music_style": "Sweet Classical Fusion, Playful Piano, Veena & Xylophone, 114 BPM",
+      "status": "planned"
+    },
+    {
+      "week": 8,
+      "episode_id": "ep08_super_bal_hanuman_cloud_jump",
+      "title": "Super Bal Hanuman Part 2 - Flying Over Fluffy Clouds",
+      "theme_prompt": "Photorealistic live-action cute 4-year-old Bal Hanuman taking his kid friends on a joyful cloud-bouncing adventure in the golden sky and bringing sweet fruits back to the garden.",
+      "music_style": "Heroic Upbeat Orchestral Dhol, Flute & Kids Party Choir, 125 BPM",
+      "status": "planned"
+    }
+  ]
+}

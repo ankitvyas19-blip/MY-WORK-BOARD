@@ -1,0 +1,7 @@
+# Never commit OAuth credentials or tokens
+client_secrets.json
+youtube_token.json
+
+# Ignore generated heavy video outputs in git (kept locally and uploaded as Actions artifacts)
+output/*.mp4
+output/tmp_*

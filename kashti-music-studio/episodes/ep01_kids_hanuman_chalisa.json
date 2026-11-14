@@ -1,0 +1,190 @@
+{
+  "channel_handle": "@kashtimusicstudio",
+  "channel_name": "Kashti Music Studio",
+  "episode_number": 1,
+  "episode_id": "ep01_kids_hanuman_chalisa",
+  "release_day": "Friday",
+  "youtube_metadata": {
+    "title": "मेरा दोस्त बाल-हनुमान | Kids Hanuman Chalisa (Live-Action) | Cute Bal Hanuman Song | Kashti Music Studio",
+    "description": "Welcome to Kashti Music Studio (@kashtimusicstudio)! 🎵✨\n\nPresenting our special Kids Devotional Hit: 'Mera Dost Bal Hanuman - Kids Hanuman Chalisa' specially crafted for 4-5 year old children and families!\n\nWatch adorable Bal Hanuman Ji become best friends with kids, play hide-and-seek in a sunlit garden, enjoy sweet mangoes & laddoos, and protect his little friends with his magical golden gada!\n\n🔔 Subscribe to Kashti Music Studio for a NEW Music Video EVERY WEEK:\nhttps://www.youtube.com/@kashtimusicstudio\n\n#HanumanChalisa #BalHanuman #KidsHanumanChalisa #KashtiMusicStudio #KidsBhajan #DevotionalSongsForKids",
+    "tags": [
+      "Kashti Music Studio",
+      "Kids Hanuman Chalisa",
+      "Bal Hanuman",
+      "Mera Dost Bal Hanuman",
+      "Hanuman Chalisa for Kids",
+      "Cute Bal Hanuman",
+      "Hindi Kids Bhajan",
+      "Devotional Songs for Children"
+    ],
+    "category_id": "10",
+    "privacy_status": "private",
+    "made_for_kids": true
+  },
+  "music_prompt": {
+    "style": "Upbeat Indian Kids Pop, Playful Bollywood Children Song, Bouncy Dholak and Ukulele, Cheerful Bansuri Flute, Handclaps, Cute Giggling Kids Choir + Warm Friendly Male Lead Vocal, Catchy Toy Xylophone Melody, Joyful, Magical, 118 BPM, Studio Master Quality",
+    "target_duration_seconds": 240
+  },
+  "blocks_15s": [
+    {
+      "block": 1,
+      "start_sec": 0,
+      "end_sec": 15,
+      "source_clip": "clip_01.mp4",
+      "fallback_image": "frame_01_greeting.jpg",
+      "effect": "zoom_in_slow",
+      "lyrics_hi": "श्रीगुरु चरन सरोज रज, निज मनु मुकुरु सुधारि। जय हनुमान ज्ञान गुन सागर!",
+      "scene_title": "Morning Garden Peek-a-Boo"
+    },
+    {
+      "block": 2,
+      "start_sec": 15,
+      "end_sec": 30,
+      "source_clip": "clip_02.mp4",
+      "fallback_image": "frame_02_playing.jpg",
+      "effect": "pan_right",
+      "lyrics_hi": "राम दूत अतुलित बल धामा, अंजनि-पुत्र पवनसुत नामा।",
+      "scene_title": "High-Five & Butterfly Chase"
+    },
+    {
+      "block": 3,
+      "start_sec": 30,
+      "end_sec": 45,
+      "source_clip": "clip_01.mp4",
+      "fallback_image": "frame_01_greeting.jpg",
+      "effect": "zoom_out_closeup",
+      "lyrics_hi": "महाबीर बिक्रम बजरंगी, कुमति निवार सुमति के संगी। कंचन बरन बिराज सुबेसा!",
+      "scene_title": "Touching Cute Crown & Giggling"
+    },
+    {
+      "block": 4,
+      "start_sec": 45,
+      "end_sec": 60,
+      "source_clip": "clip_03.mp4",
+      "fallback_image": "frame_02_playing.jpg",
+      "effect": "zoom_in_slow",
+      "lyrics_hi": "हाथ बज्र औ ध्वजा बिराजै, कांधे मूंज जनेऊ साजै। सूक्ष्म रूप धरि सियहिं दिखावा!",
+      "scene_title": "Hide & Seek Behind Clay Pot"
+    },
+    {
+      "block": 5,
+      "start_sec": 60,
+      "end_sec": 75,
+      "source_clip": "clip_02.mp4",
+      "fallback_image": "frame_02_playing.jpg",
+      "effect": "pan_left",
+      "lyrics_hi": "विद्यावान गुनी अति चातुर, राम काज करिबे को आतुर। प्रभु चरितर सुनिबे को रसिया!",
+      "scene_title": "Running with Puppy & White Bunny"
+    },
+    {
+      "block": 6,
+      "start_sec": 75,
+      "end_sec": 90,
+      "source_clip": "clip_04.mp4",
+      "fallback_image": "frame_03_mango_picnic.jpg",
+      "effect": "zoom_in_slow",
+      "lyrics_hi": "जुग सहस्र जोजन पर भानू, लील्यो ताहि मधुर फल जानू!",
+      "scene_title": "Sweet Mango & Laddoo Picnic"
+    },
+    {
+      "block": 7,
+      "start_sec": 90,
+      "end_sec": 105,
+      "source_clip": "clip_05.mp4",
+      "fallback_image": "frame_03_mango_picnic.jpg",
+      "effect": "zoom_out_closeup",
+      "lyrics_hi": "प्रभु मुद्रिका मेलि मुख माहीं, जलधि लांघि गये अचरज नाहीं। दुर्गम काज जगत के जेते!",
+      "scene_title": "Jumping to Rescue Kids Ball"
+    },
+    {
+      "block": 8,
+      "start_sec": 105,
+      "end_sec": 120,
+      "source_clip": "clip_06.mp4",
+      "fallback_image": "frame_04_protecting.jpg",
+      "effect": "zoom_in_slow",
+      "lyrics_hi": "भूत पिसाच निकट नहिं आवै, महाबीर जब नाम सुनावै!",
+      "scene_title": "Glowing Golden Gada & Fireflies at Twilight"
+    },
+    {
+      "block": 9,
+      "start_sec": 120,
+      "end_sec": 135,
+      "source_clip": "clip_06.mp4",
+      "fallback_image": "frame_04_protecting.jpg",
+      "effect": "pan_right",
+      "lyrics_hi": "नासै रोग हरै सब पीरा, जपत निरंतर हनुमत बीरा। संकट तें हनुमान छुड़ावै!",
+      "scene_title": "Catching & Hugging Little Friend"
+    },
+    {
+      "block": 10,
+      "start_sec": 135,
+      "end_sec": 150,
+      "source_clip": "clip_07.mp4",
+      "fallback_image": "frame_01_greeting.jpg",
+      "effect": "zoom_in_slow",
+      "lyrics_hi": "अष्ट सिद्धि नौ निधि के दाता, अस बर दीन जानकी माता!",
+      "scene_title": "Shower of Marigold & Rose Petals"
+    },
+    {
+      "block": 11,
+      "start_sec": 150,
+      "end_sec": 165,
+      "source_clip": "clip_08.mp4",
+      "fallback_image": "frame_02_playing.jpg",
+      "effect": "pan_left",
+      "lyrics_hi": "राम रसायन तुम्हरे पासा, सदा रहो रघुपति के दासा!",
+      "scene_title": "Joyful Circle Dance on the Lawn"
+    },
+    {
+      "block": 12,
+      "start_sec": 165,
+      "end_sec": 180,
+      "source_clip": "clip_07.mp4",
+      "fallback_image": "frame_03_mango_picnic.jpg",
+      "effect": "zoom_out_closeup",
+      "lyrics_hi": "जय जय जय हनुमान गोसाईं, कृपा करहु गुरुदेव की नाईं!",
+      "scene_title": "Flower Garland & Cute Namaste"
+    },
+    {
+      "block": 13,
+      "start_sec": 180,
+      "end_sec": 195,
+      "source_clip": "clip_06.mp4",
+      "fallback_image": "frame_04_protecting.jpg",
+      "effect": "zoom_in_slow",
+      "lyrics_hi": "जो सत बार पाठ कर कोई, छूटहि बंदि महा सुख होई। जो यह पढ़ै हनुमान चालीसा!",
+      "scene_title": "Warm Evening with Glowing Clay Diyas"
+    },
+    {
+      "block": 14,
+      "start_sec": 195,
+      "end_sec": 210,
+      "source_clip": "clip_08.mp4",
+      "fallback_image": "frame_01_greeting.jpg",
+      "effect": "zoom_out_closeup",
+      "lyrics_hi": "पवनतनय संकट हरन, मंगल मूरति रूप। राम लखन सीता सहित, हृदय बसहु सुर भूप॥",
+      "scene_title": "Warm Hug & Waving Goodbye"
+    },
+    {
+      "block": 15,
+      "start_sec": 210,
+      "end_sec": 225,
+      "source_clip": "clip_02.mp4",
+      "fallback_image": "frame_02_playing.jpg",
+      "effect": "zoom_in_slow",
+      "lyrics_hi": "बोलो बजरंग बली की जय! हमारे प्यारे दोस्त बाल-हनुमान की जय!",
+      "scene_title": "Grand Celebration Montage"
+    },
+    {
+      "block": 16,
+      "start_sec": 225,
+      "end_sec": 240,
+      "source_clip": "clip_04.mp4",
+      "fallback_image": "frame_03_mango_picnic.jpg",
+      "effect": "zoom_out_closeup",
+      "lyrics_hi": "Kashti Music Studio (@kashtimusicstudio) — Subscribe for Weekly Music Videos!",
+      "scene_title": "Kashti Music Studio End Screen"
+    }
+  ]
+}
