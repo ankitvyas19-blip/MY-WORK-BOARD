@@ -633,7 +633,7 @@ def upload_to_youtube(
 
     status_body = {
         "privacyStatus": meta.get("privacy_status", "public"),
-        "selfDeclaredMadeForKids": meta.get("made_for_kids", True),
+        "selfDeclaredMadeForKids": meta.get("made_for_kids", False),
     }
     if publish_at_iso:
         status_body["privacyStatus"] = "private"
