@@ -383,6 +383,18 @@ def _render_fast_subshot(
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
 
 
+def _resolve_clip_or_fallback(preferred_name: str, block_num: int) -> Path:
+    preferred = CLIPS_DIR / preferred_name
+    if preferred.exists() and preferred.stat().st_size > 10000:
+        return preferred
+    available = sorted(
+        [p for p in list(CLIPS_DIR.glob("*.mp4")) + list(CLIPS_DIR.glob("*.mov")) if p.stat().st_size > 10000]
+    )
+    if available:
+        return available[(block_num - 1) % len(available)]
+    return preferred
+
+
 def render_fast_cut_block(block: dict, block_duration: int, temp_dir: Path) -> Path:
     """
     Splits each 15-second block into 4 snappy music-video cuts (~3.75s each)
@@ -393,8 +405,8 @@ def render_fast_cut_block(block: dict, block_duration: int, temp_dir: Path) -> P
     block_num = block["block"]
     out_block = temp_dir / f"block_{block_num:02d}.mp4"
 
-    primary_clip = CLIPS_DIR / block["source_clip"]
-    alt_clip = CLIPS_DIR / block.get("alt_clip", block["source_clip"])
+    primary_clip = _resolve_clip_or_fallback(block["source_clip"], block_num)
+    alt_clip = _resolve_clip_or_fallback(block.get("alt_clip", block["source_clip"]), block_num + 3)
     primary_img = KEYFRAMES_DIR / block["fallback_image"]
     alt_img_choices = [f for f in sorted(KEYFRAMES_DIR.glob("frame_*.jpg")) if f.name != primary_img.name]
     alt_img = alt_img_choices[(block_num) % len(alt_img_choices)] if alt_img_choices else primary_img
@@ -448,6 +460,21 @@ def render_fast_cut_block(block: dict, block_duration: int, temp_dir: Path) -> P
     return out_block
 
 
+def _find_uploaded_audio(episode_id: str) -> Path | None:
+    for ext in ("mp3", "wav", "m4a", "aac"):
+        exact = AUDIO_DIR / f"{episode_id}.{ext}"
+        if exact.exists() and exact.stat().st_size > 1000:
+            return exact
+    any_audio = sorted(
+        [
+            p for ext in ("*.mp3", "*.wav", "*.m4a", "*.aac")
+            for p in AUDIO_DIR.glob(ext)
+            if p.stat().st_size > 1000
+        ]
+    )
+    return any_audio[0] if any_audio else None
+
+
 def stitch_episode_video(
     episode_json_path: Path,
     preview_blocks: int = 0,
@@ -466,8 +493,12 @@ def stitch_episode_video(
     temp_dir = OUTPUT_DIR / f"tmp_{episode_id}"
     temp_dir.mkdir(parents=True, exist_ok=True)
 
-    has_real_clips = any((CLIPS_DIR / b["source_clip"]).exists() for b in blocks)
-    mode_label = "REAL MOVING AI VIDEO CLIPS" if has_real_clips else "FAST-CUT KEYFRAME TEMPLATE (add Veo/Flow clips in clips/ for full motion)"
+    available_clips = [p for p in list(CLIPS_DIR.glob("*.mp4")) + list(CLIPS_DIR.glob("*.mov")) if p.stat().st_size > 10000]
+    mode_label = (
+        f"REAL MOVING AI VIDEO CLIPS ({len(available_clips)} clips)"
+        if available_clips
+        else "FAST-CUT KEYFRAME TEMPLATE (add Veo/Flow clips in clips/ for full motion)"
+    )
     print(f"[Step 4] Fast-Cut Music Video Editor ({mode_label}) — rendering {len(blocks)} blocks...")
 
     block_files = []
@@ -484,16 +515,16 @@ def stitch_episode_video(
         for bf in block_files:
             f.write(f"file '{bf.resolve()}'\n")
 
-    # Step 3: Audio priority -> 1) Manual Suno/Udio MP3, 2) Lyria 3.5 AI Song, 3) Demo Mix
-    master_mp3 = AUDIO_DIR / f"{episode_id}.mp3"
-    master_wav = AUDIO_DIR / f"{episode_id}.wav"
-    if not master_mp3.exists() and not master_wav.exists() and api_key:
-        auto_generate_music_via_lyria(config, api_key, master_mp3)
+    # Step 3: Audio priority -> 1) Manual Suno/Udio file in audio/, 2) Lyria 3.5 AI Song, 3) Demo Mix
+    uploaded_audio = _find_uploaded_audio(episode_id)
+    if not uploaded_audio and api_key:
+        master_mp3 = AUDIO_DIR / f"{episode_id}.mp3"
+        if auto_generate_music_via_lyria(config, api_key, master_mp3):
+            uploaded_audio = master_mp3
 
-    if master_mp3.exists():
-        audio_input = master_mp3
-    elif master_wav.exists():
-        audio_input = master_wav
+    if uploaded_audio:
+        print(f"[Step 3] Using master audio track: {uploaded_audio.name}")
+        audio_input = uploaded_audio
     else:
         print(f"[Step 3] Synthesizing 118-BPM demo track ({total_duration}s)...")
         inst_wav = temp_dir / "instrumental.wav"
