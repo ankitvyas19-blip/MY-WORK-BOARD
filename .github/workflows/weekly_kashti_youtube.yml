@@ -1,10 +1,8 @@
 name: "Kashti Music Studio — Weekly Zero-Touch YouTube Release"
 
 on:
-  # Runs automatically every Friday at 06:30 UTC (12:00 PM IST)
   schedule:
     - cron: "30 6 * * 5"
-  # Also allows 1-click manual trigger from the GitHub Actions tab
   workflow_dispatch:
     inputs:
       week_number:
@@ -15,23 +13,23 @@ on:
 jobs:
   produce-and-upload-music-video:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.11 & FFmpeg
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install FFmpeg and YouTube Data API Dependencies
+      - name: Install FFmpeg, Hindi Fonts & Google GenAI + YouTube SDKs
         run: |
-          sudo apt-get update && sudo apt-get install -y ffmpeg
-          pip install google-api-python-client google-auth-oauthlib google-auth-httplib2
+          sudo apt-get update && sudo apt-get install -y ffmpeg fonts-noto-core fonts-noto-extra
+          pip install google-genai google-api-python-client google-auth-oauthlib google-auth-httplib2
 
-      - name: Run 100% Zero-Touch Weekly Music Video Pipeline
+      - name: Run 100% Zero-Touch AI Music Video Pipeline (Veo 3.1 + Lyria 3.5 + Fast-Cut + YouTube)
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}

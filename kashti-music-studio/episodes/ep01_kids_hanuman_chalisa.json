@@ -5,8 +5,8 @@
   "episode_id": "ep01_kids_hanuman_chalisa",
   "release_day": "Friday",
   "youtube_metadata": {
-    "title": "मेरा दोस्त बाल-हनुमान | Kids Hanuman Chalisa (Live-Action) | Cute Bal Hanuman Song | Kashti Music Studio",
-    "description": "Welcome to Kashti Music Studio (@kashtimusicstudio)! 🎵✨\n\nPresenting our special Kids Devotional Hit: 'Mera Dost Bal Hanuman - Kids Hanuman Chalisa' specially crafted for 4-5 year old children and families!\n\nWatch adorable Bal Hanuman Ji become best friends with kids, play hide-and-seek in a sunlit garden, enjoy sweet mangoes & laddoos, and protect his little friends with his magical golden gada!\n\n🔔 Subscribe to Kashti Music Studio for a NEW Music Video EVERY WEEK:\nhttps://www.youtube.com/@kashtimusicstudio\n\n#HanumanChalisa #BalHanuman #KidsHanumanChalisa #KashtiMusicStudio #KidsBhajan #DevotionalSongsForKids",
+    "title": "मेरा दोस्त बाल-हनुमान | Kids Hanuman Chalisa (Live-Action AI Music Video) | Kashti Music Studio",
+    "description": "Welcome to Kashti Music Studio (@kashtimusicstudio)! 🎵✨\n\nPresenting our special Kids Devotional Hit: 'Mera Dost Bal Hanuman - Kids Hanuman Chalisa' specially crafted for 4-5 year old children and families!\n\nWatch adorable live-action Bal Hanuman Ji become best friends with kids, play hide-and-seek in a sunlit garden, enjoy sweet mangoes & laddoos, and protect his little friends with his magical golden gada!\n\n🔔 Subscribe to Kashti Music Studio for a NEW Music Video EVERY WEEK:\nhttps://www.youtube.com/@kashtimusicstudio\n\n#HanumanChalisa #BalHanuman #KidsHanumanChalisa #KashtiMusicStudio #KidsBhajan #AIMusicVideo",
     "tags": [
       "Kashti Music Studio",
       "Kids Hanuman Chalisa",
@@ -15,7 +15,7 @@
       "Hanuman Chalisa for Kids",
       "Cute Bal Hanuman",
       "Hindi Kids Bhajan",
-      "Devotional Songs for Children"
+      "AI Music Video"
     ],
     "category_id": "10",
     "privacy_status": "private",
@@ -23,14 +23,66 @@
   },
   "music_prompt": {
     "style": "Upbeat Indian Kids Pop, Playful Bollywood Children Song, Bouncy Dholak and Ukulele, Cheerful Bansuri Flute, Handclaps, Cute Giggling Kids Choir + Warm Friendly Male Lead Vocal, Catchy Toy Xylophone Melody, Joyful, Magical, 118 BPM, Studio Master Quality",
+    "lyria_prompt": "Create a joyful, super catchy 3.5-minute upbeat Bollywood Indian Kids Pop devotional song at 118 BPM in C Major. Warm friendly male lead singer with an adorable cheering children's choir, bouncy dholak drums, cheerful bansuri flute, playful xylophone, and rhythmic handclaps. Sing in clear Hindi with joyful energy:\n[Intro 0:00-0:15] Bolo Bajrang Bali ki Jai! Hamare pyaare dost Bal Hanuman ki Jai! (Kids laughing and clapping)\n[Verse 1 0:15-0:45] Shree Guru charan saroj raj, nij manu mukuru sudhari! Jai Hanuman gyan gun sagar, jai kapees tihu lok ujagar! Ram doot atulit bal dhama, Anjani putra pawansut nama!\n[Chorus 0:45-1:15] Mahabeer bikram bajrangi, kumati niwar sumati ke sangi! Kanchan baran biraj subesa, kanan kundal kunchit kesa! (Upbeat kids choir clapping)\n[Verse 2 1:15-1:45] Vidyawan guni ati chatur, Ram kaj karibe ko aatur! Jug sahasra jojan par bhanu, leelyo tahi madhur phal janu! (Playful flute & kids giggles)\n[Bridge 1:45-2:30] Bhoot pisach nikat nahi aawai, Mahabeer jab naam sunawai! Nasai rog harai sab peera, japat nirantar Hanumat beera! Sankat te Hanuman chhudawai, man kram bachan dhyan jo lawai!\n[Finale Chorus 2:30-3:30] Jai jai jai Hanuman gosai, kripa karahu gurudev ki nai! Pawantanay sankat haran, mangal murati roop! Ram Lakhan Sita sahit, hriday basahu sur bhoop! (Grand joyful dholak celebration with kids cheering)",
     "target_duration_seconds": 240
   },
+  "veo_clips": [
+    {
+      "clip": "clip_01.mp4",
+      "reference_image": "frame_01_greeting.jpg",
+      "duration": 8,
+      "motion_prompt": "Live-action cinema camera slowly pushing in: Cute chubby 4-year-old Bal Hanuman in saffron silk dhoti and miniature gold crown peeks playfully from behind marigold flowers, waves his hand, wiggles his soft fluffy tail, and bursts into joyful laughter while two 4-year-old Indian kids clap and run toward him in warm golden sunlight. Smooth natural human movement, 24fps, ARRI Alexa realism, no text."
+    },
+    {
+      "clip": "clip_02.mp4",
+      "reference_image": "frame_02_playing.jpg",
+      "duration": 8,
+      "motion_prompt": "Dynamic tracking shot in a lush green mango garden: Adorable 4-year-old live-action Bal Hanuman jumps joyfully to give an energetic high-five to a laughing 4-year-old Indian boy while colorful monarch butterflies flutter all around them and two more children run giggling on the grass. Natural hair and cloth motion, golden hour sunlight, 24fps."
+    },
+    {
+      "clip": "clip_03.mp4",
+      "reference_image": "frame_01_greeting.jpg",
+      "duration": 8,
+      "motion_prompt": "Playful medium live-action shot: Little 4-year-old Bal Hanuman pops up suddenly from behind a large terracotta flower pot playing hide-and-seek, makes a super cute funny face, and playfully spins his tiny golden gada while the kids burst into laughter. Smooth handheld cinema motion, natural skin texture."
+    },
+    {
+      "clip": "clip_04.mp4",
+      "reference_image": "frame_03_mango_picnic.jpg",
+      "duration": 8,
+      "motion_prompt": "Warm sunlit picnic under a mango tree: Cute chubby 4-year-old Bal Hanuman with yellow mango on his cheek takes a big happy bite of ripe mango and laughs heartily with three 4-year-old Indian kids sitting on a colorful woven mat with laddoos. Real facial expressions, swaying leaves, dappled sunlight."
+    },
+    {
+      "clip": "clip_05.mp4",
+      "reference_image": "frame_02_playing.jpg",
+      "duration": 8,
+      "motion_prompt": "Energetic low-angle live-action shot: Cute 4-year-old Bal Hanuman makes a magical playful leap upward into the air to catch a bright red rubber ball stuck in a low mango tree branch and lands softly, handing the ball to a cheering little girl. Dynamic upward camera tilt, realistic physics."
+    },
+    {
+      "clip": "clip_06.mp4",
+      "reference_image": "frame_04_protecting.jpg",
+      "duration": 8,
+      "motion_prompt": "Magical twilight live-action cinema shot: Cute 4-year-old Bal Hanuman holds up his miniature glowing golden gada which illuminates the twilight garden with warm sparkles and floating fireflies while he warmly hugs his two happy 4-year-old Indian friends who look at him in awe. Slow cinematic orbit camera, rich bokeh."
+    },
+    {
+      "clip": "clip_07.mp4",
+      "reference_image": "frame_01_greeting.jpg",
+      "duration": 8,
+      "motion_prompt": "Heartwarming slow-motion live-action close-up: Little 4-year-old Bal Hanuman opens his small hands and gently blows bright orange marigold and pink rose petals into the air; flower petals float gracefully around laughing 4-year-old children who try to catch them. Warm golden rim light."
+    },
+    {
+      "clip": "clip_08.mp4",
+      "reference_image": "frame_02_playing.jpg",
+      "duration": 8,
+      "motion_prompt": "Joyful music video finale shot: Cute 4-year-old Bal Hanuman and three happy Indian children hold hands in a circle on the green garden lawn, spinning around, clapping, dancing to the beat, and then waving cheerfully straight into the camera. Smooth orbital tracking shot, vibrant sunlit colors."
+    }
+  ],
   "blocks_15s": [
     {
       "block": 1,
       "start_sec": 0,
       "end_sec": 15,
       "source_clip": "clip_01.mp4",
+      "alt_clip": "clip_07.mp4",
       "fallback_image": "frame_01_greeting.jpg",
       "effect": "zoom_in_slow",
       "lyrics_hi": "श्रीगुरु चरन सरोज रज, निज मनु मुकुरु सुधारि। जय हनुमान ज्ञान गुन सागर!",
@@ -41,6 +93,7 @@
       "start_sec": 15,
       "end_sec": 30,
       "source_clip": "clip_02.mp4",
+      "alt_clip": "clip_01.mp4",
       "fallback_image": "frame_02_playing.jpg",
       "effect": "pan_right",
       "lyrics_hi": "राम दूत अतुलित बल धामा, अंजनि-पुत्र पवनसुत नामा।",
@@ -50,7 +103,8 @@
       "block": 3,
       "start_sec": 30,
       "end_sec": 45,
-      "source_clip": "clip_01.mp4",
+      "source_clip": "clip_07.mp4",
+      "alt_clip": "clip_01.mp4",
       "fallback_image": "frame_01_greeting.jpg",
       "effect": "zoom_out_closeup",
       "lyrics_hi": "महाबीर बिक्रम बजरंगी, कुमति निवार सुमति के संगी। कंचन बरन बिराज सुबेसा!",
@@ -61,6 +115,7 @@
       "start_sec": 45,
       "end_sec": 60,
       "source_clip": "clip_03.mp4",
+      "alt_clip": "clip_02.mp4",
       "fallback_image": "frame_02_playing.jpg",
       "effect": "zoom_in_slow",
       "lyrics_hi": "हाथ बज्र औ ध्वजा बिराजै, कांधे मूंज जनेऊ साजै। सूक्ष्म रूप धरि सियहिं दिखावा!",
@@ -71,16 +126,18 @@
       "start_sec": 60,
       "end_sec": 75,
       "source_clip": "clip_02.mp4",
+      "alt_clip": "clip_05.mp4",
       "fallback_image": "frame_02_playing.jpg",
       "effect": "pan_left",
       "lyrics_hi": "विद्यावान गुनी अति चातुर, राम काज करिबे को आतुर। प्रभु चरितर सुनिबे को रसिया!",
-      "scene_title": "Running with Puppy & White Bunny"
+      "scene_title": "Running & Playing in the Orchard"
     },
     {
       "block": 6,
       "start_sec": 75,
       "end_sec": 90,
       "source_clip": "clip_04.mp4",
+      "alt_clip": "clip_03.mp4",
       "fallback_image": "frame_03_mango_picnic.jpg",
       "effect": "zoom_in_slow",
       "lyrics_hi": "जुग सहस्र जोजन पर भानू, लील्यो ताहि मधुर फल जानू!",
@@ -91,6 +148,7 @@
       "start_sec": 90,
       "end_sec": 105,
       "source_clip": "clip_05.mp4",
+      "alt_clip": "clip_04.mp4",
       "fallback_image": "frame_03_mango_picnic.jpg",
       "effect": "zoom_out_closeup",
       "lyrics_hi": "प्रभु मुद्रिका मेलि मुख माहीं, जलधि लांघि गये अचरज नाहीं। दुर्गम काज जगत के जेते!",
@@ -101,6 +159,7 @@
       "start_sec": 105,
       "end_sec": 120,
       "source_clip": "clip_06.mp4",
+      "alt_clip": "clip_07.mp4",
       "fallback_image": "frame_04_protecting.jpg",
       "effect": "zoom_in_slow",
       "lyrics_hi": "भूत पिसाच निकट नहिं आवै, महाबीर जब नाम सुनावै!",
@@ -111,6 +170,7 @@
       "start_sec": 120,
       "end_sec": 135,
       "source_clip": "clip_06.mp4",
+      "alt_clip": "clip_01.mp4",
       "fallback_image": "frame_04_protecting.jpg",
       "effect": "pan_right",
       "lyrics_hi": "नासै रोग हरै सब पीरा, जपत निरंतर हनुमत बीरा। संकट तें हनुमान छुड़ावै!",
@@ -121,6 +181,7 @@
       "start_sec": 135,
       "end_sec": 150,
       "source_clip": "clip_07.mp4",
+      "alt_clip": "clip_08.mp4",
       "fallback_image": "frame_01_greeting.jpg",
       "effect": "zoom_in_slow",
       "lyrics_hi": "अष्ट सिद्धि नौ निधि के दाता, अस बर दीन जानकी माता!",
@@ -131,6 +192,7 @@
       "start_sec": 150,
       "end_sec": 165,
       "source_clip": "clip_08.mp4",
+      "alt_clip": "clip_02.mp4",
       "fallback_image": "frame_02_playing.jpg",
       "effect": "pan_left",
       "lyrics_hi": "राम रसायन तुम्हरे पासा, सदा रहो रघुपति के दासा!",
@@ -141,6 +203,7 @@
       "start_sec": 165,
       "end_sec": 180,
       "source_clip": "clip_07.mp4",
+      "alt_clip": "clip_04.mp4",
       "fallback_image": "frame_03_mango_picnic.jpg",
       "effect": "zoom_out_closeup",
       "lyrics_hi": "जय जय जय हनुमान गोसाईं, कृपा करहु गुरुदेव की नाईं!",
@@ -151,6 +214,7 @@
       "start_sec": 180,
       "end_sec": 195,
       "source_clip": "clip_06.mp4",
+      "alt_clip": "clip_08.mp4",
       "fallback_image": "frame_04_protecting.jpg",
       "effect": "zoom_in_slow",
       "lyrics_hi": "जो सत बार पाठ कर कोई, छूटहि बंदि महा सुख होई। जो यह पढ़ै हनुमान चालीसा!",
@@ -161,6 +225,7 @@
       "start_sec": 195,
       "end_sec": 210,
       "source_clip": "clip_08.mp4",
+      "alt_clip": "clip_01.mp4",
       "fallback_image": "frame_01_greeting.jpg",
       "effect": "zoom_out_closeup",
       "lyrics_hi": "पवनतनय संकट हरन, मंगल मूरति रूप। राम लखन सीता सहित, हृदय बसहु सुर भूप॥",
@@ -171,6 +236,7 @@
       "start_sec": 210,
       "end_sec": 225,
       "source_clip": "clip_02.mp4",
+      "alt_clip": "clip_05.mp4",
       "fallback_image": "frame_02_playing.jpg",
       "effect": "zoom_in_slow",
       "lyrics_hi": "बोलो बजरंग बली की जय! हमारे प्यारे दोस्त बाल-हनुमान की जय!",
@@ -180,7 +246,8 @@
       "block": 16,
       "start_sec": 225,
       "end_sec": 240,
-      "source_clip": "clip_04.mp4",
+      "source_clip": "clip_08.mp4",
+      "alt_clip": "clip_04.mp4",
       "fallback_image": "frame_03_mango_picnic.jpg",
       "effect": "zoom_out_closeup",
       "lyrics_hi": "Kashti Music Studio (@kashtimusicstudio) — Subscribe for Weekly Music Videos!",
