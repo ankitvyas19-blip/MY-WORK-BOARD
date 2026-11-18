@@ -653,6 +653,10 @@ async function startServer() {
   if (!rooms.has('prioritization')) getOrCreateRoom('prioritization');
 
   // REST API endpoints
+  app.get('/api/health', (_req, res) => {
+    res.json({ ok: true, service: 'my-work-board', port: PORT });
+  });
+
   app.get('/api/workspace', (_req, res) => {
     try {
       if (fs.existsSync(WORKSPACE_FILE)) {
@@ -1136,15 +1140,16 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
+    const distPath = path.join(__dirname, 'dist');
     app.use(express.static(distPath));
     app.get('*', (_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
 
-  httpServer.listen(PORT, () => {
-    console.log(`CanvasJam Server & WebSocket listening on http://localhost:${PORT}`);
+  const HOST = process.env.HOST || '0.0.0.0';
+  httpServer.listen(PORT, HOST, () => {
+    console.log(`CanvasJam Server & WebSocket listening on http://${HOST}:${PORT}`);
   });
 }
 

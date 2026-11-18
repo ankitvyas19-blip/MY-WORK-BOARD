@@ -1,0 +1,22 @@
+[Unit]
+Description=MY-WORK-BOARD (CanvasJam) Web App & WebSocket Server on :__APP_PORT__
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=__APP_DIR__
+Environment=PATH=__NODE_BIN_DIR__:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=NODE_ENV=production
+Environment=HOST=0.0.0.0
+Environment=PORT=__APP_PORT__
+EnvironmentFile=-__APP_DIR__/.env
+ExecStart=__APP_DIR__/node_modules/.bin/tsx __APP_DIR__/server.ts
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=my-work-board
+
+[Install]
+WantedBy=multi-user.target

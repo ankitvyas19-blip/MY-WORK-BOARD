@@ -34,8 +34,31 @@ EPISODES_DIR = BASE_DIR / "episodes"
 CLIPS_DIR = BASE_DIR / "clips"
 KEYFRAMES_DIR = BASE_DIR / "keyframes"
 AUDIO_DIR = BASE_DIR / "audio"
+FONTS_DIR = BASE_DIR / "fonts"
 OUTPUT_DIR = BASE_DIR / "output"
 CALENDAR_FILE = EPISODES_DIR / "weekly_calendar.json"
+
+
+def _load_dotenv_if_present() -> None:
+    """Loads key=value pairs from .env (repo root or studio dir) without overriding real env vars."""
+    for env_file in (BASE_DIR / ".env", BASE_DIR.parent / ".env"):
+        if not env_file.exists():
+            continue
+        try:
+            for raw_line in env_file.read_text(encoding="utf-8").splitlines():
+                line = raw_line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, val = line.split("=", 1)
+                key = key.strip()
+                val = val.strip().strip('"').strip("'")
+                if key and key not in os.environ and val:
+                    os.environ[key] = val
+        except Exception:
+            pass
+
+
+_load_dotenv_if_present()
 
 MASTER_CHARACTER_LOCK = (
     "Ultra-photorealistic cinematic live-action movie still, 8k resolution, shot on ARRI Alexa 65 "
@@ -72,7 +95,7 @@ Return ONLY valid JSON with:
 - channel_handle: "@kashtimusicstudio"
 - episode_number: {week_entry['week']}
 - episode_id: "{episode_id}"
-- youtube_metadata (title, description, tags, category_id="10", privacy_status="private", made_for_kids=true)
+- youtube_metadata (title, description, tags, category_id="10", privacy_status="private", made_for_kids=false)
 - music_prompt: {{ "style": "...", "lyria_prompt": "Full Hindi/Hinglish song lyrics with [Intro], [Verse 1], [Chorus], [Bridge], [Finale] timestamps for 3.5 minutes", "target_duration_seconds": 240 }}
 - veo_clips: array of 8 objects ({{ "clip": "clip_01.mp4".."clip_08.mp4", "reference_image": "frame_01_greeting.jpg".."frame_04_protecting.jpg", "duration": 8, "motion_prompt": "Rich cinematic camera & live-action human movement prompt" }})
 - blocks_15s: array of 16 objects (block 1..16, start_sec, end_sec, source_clip, alt_clip, fallback_image, effect, lyrics_hi, scene_title).
@@ -117,21 +140,45 @@ def write_srt_from_blocks(blocks: list, srt_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # STEP 2: PHOTOREALISTIC KEYFRAMES (IMAGEN 3) + MOVING VIDEO (VEO 3.1)
 # ---------------------------------------------------------------------------
-def auto_generate_visuals_via_gemini(config: dict, api_key: str, enable_veo: bool = True) -> None:
-    KEYFRAMES_DIR.mkdir(parents=True, exist_ok=True)
-    CLIPS_DIR.mkdir(parents=True, exist_ok=True)
+def _episode_keyframes_dir(episode_id: str) -> Path:
+    if episode_id == "ep01_kids_hanuman_chalisa":
+        return KEYFRAMES_DIR
+    return KEYFRAMES_DIR / episode_id
 
-    frame_prompts = {
-        "frame_01_greeting.jpg": f"{MASTER_CHARACTER_LOCK} Greeting kids in a sunlit marigold garden.",
-        "frame_02_playing.jpg": f"{MASTER_CHARACTER_LOCK} Playing hide and seek and chasing butterflies with kids.",
-        "frame_03_mango_picnic.jpg": f"{MASTER_CHARACTER_LOCK} Laughing and sharing sweet yellow mangoes and laddoos under a mango tree.",
-        "frame_04_protecting.jpg": f"{MASTER_CHARACTER_LOCK} At twilight surrounded by glowing golden fireflies, hugging and protecting child friends.",
-    }
+
+def _episode_clips_dir(episode_id: str) -> Path:
+    if episode_id == "ep01_kids_hanuman_chalisa":
+        return CLIPS_DIR
+    return CLIPS_DIR / episode_id
+
+
+def auto_generate_visuals_via_gemini(config: dict, api_key: str, enable_veo: bool = True) -> None:
+    episode_id = config.get("episode_id", "ep01_kids_hanuman_chalisa")
+    kf_dir = _episode_keyframes_dir(episode_id)
+    cl_dir = _episode_clips_dir(episode_id)
+    kf_dir.mkdir(parents=True, exist_ok=True)
+    cl_dir.mkdir(parents=True, exist_ok=True)
+
+    ep_title = config.get("youtube_metadata", {}).get("title", episode_id)
+    if episode_id == "ep01_kids_hanuman_chalisa":
+        frame_prompts = {
+            "frame_01_greeting.jpg": f"{MASTER_CHARACTER_LOCK} Greeting kids in a sunlit marigold garden.",
+            "frame_02_playing.jpg": f"{MASTER_CHARACTER_LOCK} Playing hide and seek and chasing butterflies with kids.",
+            "frame_03_mango_picnic.jpg": f"{MASTER_CHARACTER_LOCK} Laughing and sharing sweet yellow mangoes and laddoos under a mango tree.",
+            "frame_04_protecting.jpg": f"{MASTER_CHARACTER_LOCK} At twilight surrounded by glowing golden fireflies, hugging and protecting child friends.",
+        }
+    else:
+        frame_prompts = {
+            "frame_01_greeting.jpg": f"{MASTER_CHARACTER_LOCK} Opening greeting scene for {ep_title} in golden morning sunlight.",
+            "frame_02_playing.jpg": f"{MASTER_CHARACTER_LOCK} Playful joyful outdoor adventure scene for {ep_title} with happy 4-year-old kids.",
+            "frame_03_mango_picnic.jpg": f"{MASTER_CHARACTER_LOCK} Festive celebration sharing sweets and fruits for {ep_title} under dappled sunlight.",
+            "frame_04_protecting.jpg": f"{MASTER_CHARACTER_LOCK} Magical twilight finale with glowing warm diyas and fireflies for {ep_title}.",
+        }
 
     for fname, prompt in frame_prompts.items():
-        fpath = KEYFRAMES_DIR / fname
+        fpath = kf_dir / fname
         if fpath.exists() and fpath.stat().st_size > 1000:
-            print(f"[Step 2a] Keyframe ready: {fname}")
+            print(f"[Step 2a] Keyframe ready: {fpath.relative_to(BASE_DIR)}")
             continue
         if not api_key:
             continue
@@ -148,7 +195,7 @@ def auto_generate_visuals_via_gemini(config: dict, api_key: str, enable_veo: boo
             b64_img = result["predictions"][0]["bytesBase64Encoded"]
             with open(fpath, "wb") as img_f:
                 img_f.write(base64.b64decode(b64_img))
-            print(f"  ✓ Saved {fname}")
+            print(f"  ✓ Saved {fpath.relative_to(BASE_DIR)}")
         except Exception as exc:
             print(f"  ! Imagen notice for {fname}: {exc}")
 
@@ -174,12 +221,15 @@ def auto_generate_visuals_via_gemini(config: dict, api_key: str, enable_veo: boo
 
     for item in veo_clips:
         clip_name = item["clip"]
-        clip_path = CLIPS_DIR / clip_name
+        clip_path = cl_dir / clip_name
         if clip_path.exists() and clip_path.stat().st_size > 10000:
-            print(f"[Step 2b] Moving video clip already exists: {clip_name}")
+            print(f"[Step 2b] Moving video clip already exists: {clip_path.relative_to(BASE_DIR)}")
             continue
 
-        ref_img_path = KEYFRAMES_DIR / item.get("reference_image", "frame_01_greeting.jpg")
+        ref_name = item.get("reference_image", "frame_01_greeting.jpg")
+        ref_img_path = kf_dir / ref_name
+        if not ref_img_path.exists():
+            ref_img_path = KEYFRAMES_DIR / ref_name
         print(f"[Step 2b] Generating REAL moving cinema clip {clip_name} with {veo_model}...")
         try:
             kwargs = {
@@ -196,7 +246,7 @@ def auto_generate_visuals_via_gemini(config: dict, api_key: str, enable_veo: boo
 
             operation = client.models.generate_videos(**kwargs)
             poll_count = 0
-            while not operation.done and poll_count < 45:
+            while not operation.done and poll_count < 24:
                 time.sleep(10)
                 operation = client.operations.get(operation)
                 poll_count += 1
@@ -205,18 +255,39 @@ def auto_generate_visuals_via_gemini(config: dict, api_key: str, enable_veo: boo
                 gen_vid = operation.response.generated_videos[0]
                 client.files.download(file=gen_vid.video)
                 gen_vid.video.save(str(clip_path))
-                print(f"  ✅ Saved moving Veo 3.1 clip: {clip_name}")
+                print(f"  ✅ Saved moving Veo 3.1 clip: {clip_path.relative_to(BASE_DIR)}")
             else:
                 print(f"  ! Veo returned empty/timeout for {clip_name}: {getattr(operation, 'error', 'unknown')}")
         except Exception as exc:
-            print(f"  ! Veo API notice for {clip_name}: {exc}")
+            msg = str(exc)
+            print(f"  ! Veo API notice for {clip_name}: {msg}")
             print("    (Tip: Veo API requires a billed Google AI Studio API key, OR drop clips from Google Flow/Vids into `clips/`.)")
-            break  # Avoid spamming failed API calls if billing/quota is disabled
+            fatal_markers = ("401", "403", "429", "billing", "quota", "permission", "API_KEY", "UNAUTHENTICATED")
+            if any(m.lower() in msg.lower() for m in fatal_markers):
+                break  # Avoid spamming failed API calls when billing/auth/quota is blocked
 
 
 # ---------------------------------------------------------------------------
 # STEP 3: STUDIO MUSIC + REAL VOCALS (LYRIA 3.5 OR SUNO MP3)
 # ---------------------------------------------------------------------------
+def _extract_interaction_audio_bytes(interaction) -> bytes | None:
+    audio_obj = getattr(interaction, "output_audio", None)
+    if audio_obj and getattr(audio_obj, "data", None):
+        raw = audio_obj.data
+        return base64.b64decode(raw) if isinstance(raw, str) else raw
+
+    for step in getattr(interaction, "steps", None) or []:
+        contents = getattr(step, "content", None) or getattr(step, "outputs", None) or []
+        if not isinstance(contents, list):
+            contents = [contents]
+        for block in contents:
+            b_type = getattr(block, "type", "")
+            raw = getattr(block, "data", None)
+            if (b_type == "audio" or getattr(block, "mime_type", "").startswith("audio/")) and raw:
+                return base64.b64decode(raw) if isinstance(raw, str) else raw
+    return None
+
+
 def auto_generate_music_via_lyria(config: dict, api_key: str, output_mp3: Path) -> bool:
     """
     Calls Google's `lyria-3.5` model via `google-genai` Interactions API to generate
@@ -239,12 +310,9 @@ def auto_generate_music_via_lyria(config: dict, api_key: str, output_mp3: Path) 
         interaction = client.interactions.create(
             model="lyria-3.5",
             input=lyria_prompt,
-            response_format={"type": "audio"},
         )
-        audio_obj = getattr(interaction, "output_audio", None)
-        if audio_obj and getattr(audio_obj, "data", None):
-            raw_data = audio_obj.data
-            audio_bytes = base64.b64decode(raw_data) if isinstance(raw_data, str) else raw_data
+        audio_bytes = _extract_interaction_audio_bytes(interaction)
+        if audio_bytes:
             output_mp3.parent.mkdir(parents=True, exist_ok=True)
             with open(output_mp3, "wb") as f:
                 f.write(audio_bytes)
@@ -352,11 +420,11 @@ def _render_fast_subshot(
         clip_dur = _get_media_duration(clip_path)
         ss = min(max(0.0, clip_dur - dur - 0.1), 2.5 if "closeup" in shot_mode else 0.0)
         if shot_mode == "closeup_punch":
-            vf = f"scale=1600:900,crop={width}:{height}:(iw-{width})/2:(ih-{height})/2,fps={fps},{grade},format=yuv420p"
+            vf = f"scale=1600:900:force_original_aspect_ratio=increase,crop={width}:{height}:(iw-{width})/2:(ih-{height})/2,setsar=1,fps={fps},{grade},format=yuv420p"
         elif shot_mode == "right_angle":
-            vf = f"scale=1500:844,crop={width}:{height}:(iw-{width})*0.85:(ih-{height})*0.4,fps={fps},{grade},format=yuv420p"
+            vf = f"scale=1500:844:force_original_aspect_ratio=increase,crop={width}:{height}:(iw-{width})*0.85:(ih-{height})*0.4,setsar=1,fps={fps},{grade},format=yuv420p"
         else:
-            vf = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},fps={fps},{grade},format=yuv420p"
+            vf = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},setsar=1,fps={fps},{grade},format=yuv420p"
         cmd = [
             "ffmpeg", "-y", "-ss", f"{ss:.2f}", "-stream_loop", "-1", "-i", str(clip_path),
             "-t", f"{dur:.3f}", "-vf", vf,
@@ -374,7 +442,7 @@ def _render_fast_subshot(
             zp = f"zoompan=z='min(1.0+on*0.0025,1.20)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={total_frames}:s={width}x{height}:fps={fps}"
         cmd = [
             "ffmpeg", "-y", "-loop", "1", "-i", str(img_path),
-            "-t", f"{dur:.3f}", "-vf", f"scale=1920:1080,{zp},{grade},format=yuv420p",
+            "-t", f"{dur:.3f}", "-vf", f"scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,setsar=1,{zp},{grade},format=yuv420p",
             "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-an", str(out_path),
         ]
     else:
@@ -383,19 +451,43 @@ def _render_fast_subshot(
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
 
 
-def _resolve_clip_or_fallback(preferred_name: str, block_num: int) -> Path:
-    preferred = CLIPS_DIR / preferred_name
-    if preferred.exists() and preferred.stat().st_size > 10000:
-        return preferred
-    available = sorted(
-        [p for p in list(CLIPS_DIR.glob("*.mp4")) + list(CLIPS_DIR.glob("*.mov")) if p.stat().st_size > 10000]
-    )
-    if available:
-        return available[(block_num - 1) % len(available)]
-    return preferred
+def _resolve_clip_or_fallback(preferred_name: str, block_num: int, episode_id: str = "ep01_kids_hanuman_chalisa") -> Path:
+    ep_dir = _episode_clips_dir(episode_id)
+    search_dirs = [ep_dir] if ep_dir == CLIPS_DIR else [ep_dir, CLIPS_DIR]
+    for d in search_dirs:
+        preferred = d / preferred_name
+        if preferred.exists() and preferred.stat().st_size > 10000:
+            return preferred
+        if d.exists():
+            available = sorted(
+                [p for p in list(d.glob("*.mp4")) + list(d.glob("*.mov")) if p.stat().st_size > 10000]
+            )
+            if available:
+                return available[(block_num - 1) % len(available)]
+    return ep_dir / preferred_name
 
 
-def render_fast_cut_block(block: dict, block_duration: int, temp_dir: Path) -> Path:
+def _resolve_keyframe(preferred_name: str, episode_id: str = "ep01_kids_hanuman_chalisa") -> tuple[Path, list[Path]]:
+    ep_dir = _episode_keyframes_dir(episode_id)
+    search_dirs = [ep_dir] if ep_dir == KEYFRAMES_DIR else [ep_dir, KEYFRAMES_DIR]
+    for d in search_dirs:
+        candidate = d / preferred_name
+        if candidate.exists() and candidate.stat().st_size > 1000:
+            alts = [f for f in sorted(d.glob("frame_*.jpg")) if f.name != candidate.name]
+            return candidate, alts
+        if d.exists():
+            all_imgs = sorted([p for p in d.glob("*.jpg") if p.stat().st_size > 1000])
+            if all_imgs:
+                return all_imgs[0], all_imgs[1:]
+    return ep_dir / preferred_name, []
+
+
+def render_fast_cut_block(
+    block: dict,
+    block_duration: int,
+    temp_dir: Path,
+    episode_id: str = "ep01_kids_hanuman_chalisa",
+) -> Path:
     """
     Splits each 15-second block into 4 snappy music-video cuts (~3.75s each)
     alternating between the primary moving clip, a punch-in close-up, and an alternate
@@ -405,10 +497,9 @@ def render_fast_cut_block(block: dict, block_duration: int, temp_dir: Path) -> P
     block_num = block["block"]
     out_block = temp_dir / f"block_{block_num:02d}.mp4"
 
-    primary_clip = _resolve_clip_or_fallback(block["source_clip"], block_num)
-    alt_clip = _resolve_clip_or_fallback(block.get("alt_clip", block["source_clip"]), block_num + 3)
-    primary_img = KEYFRAMES_DIR / block["fallback_image"]
-    alt_img_choices = [f for f in sorted(KEYFRAMES_DIR.glob("frame_*.jpg")) if f.name != primary_img.name]
+    primary_clip = _resolve_clip_or_fallback(block["source_clip"], block_num, episode_id)
+    alt_clip = _resolve_clip_or_fallback(block.get("alt_clip", block["source_clip"]), block_num + 3, episode_id)
+    primary_img, alt_img_choices = _resolve_keyframe(block["fallback_image"], episode_id)
     alt_img = alt_img_choices[(block_num) % len(alt_img_choices)] if alt_img_choices else primary_img
 
     # 4 rapid cuts per block with 0.35s cross-dissolve overlap
@@ -475,6 +566,44 @@ def _find_uploaded_audio(episode_id: str) -> Path | None:
     return any_audio[0] if any_audio else None
 
 
+def _escape_ffmpeg_filter_path(path: Path) -> str:
+    """Safely escapes filesystem paths (including Windows drive colons/backslashes) for FFmpeg filters."""
+    normalized = str(path.resolve()).replace("\\", "/")
+    for ch in (":", "'", "[", "]"):
+        normalized = normalized.replace(ch, f"\\{ch}")
+    return normalized
+
+
+def _detect_hindi_font() -> tuple[str, Path | None]:
+    """Detects a Devanagari-capable font so Hindi subtitles never render as tofu boxes (□□□)."""
+    bundled = (
+        sorted(list(FONTS_DIR.glob("*.ttf")) + list(FONTS_DIR.glob("*.otf")))
+        if FONTS_DIR.exists()
+        else []
+    )
+    fonts_dir = FONTS_DIR if bundled else None
+    try:
+        out = subprocess.check_output(
+            ["fc-list", ":lang=hi", "family"],
+            stderr=subprocess.DEVNULL,
+        ).decode("utf-8", errors="ignore")
+        families = [line.split(",")[0].strip() for line in out.splitlines() if line.strip()]
+        for preferred in ("Noto Sans Devanagari", "Noto Serif Devanagari", "Lohit Devanagari", "FreeSans"):
+            if preferred in families:
+                return preferred, fonts_dir
+        if families:
+            return families[0], fonts_dir
+    except Exception:
+        pass
+    if fonts_dir:
+        return "Noto Sans Devanagari", fonts_dir
+    print(
+        "[Step 4] ! Warning: No Hindi/Devanagari font detected on this system. "
+        "Install `fonts-noto-core` (Ubuntu/Debian) or place `NotoSansDevanagari-Regular.ttf` in `kashti-music-studio/fonts/`."
+    )
+    return "", None
+
+
 def stitch_episode_video(
     episode_json_path: Path,
     preview_blocks: int = 0,
@@ -493,7 +622,15 @@ def stitch_episode_video(
     temp_dir = OUTPUT_DIR / f"tmp_{episode_id}"
     temp_dir.mkdir(parents=True, exist_ok=True)
 
-    available_clips = [p for p in list(CLIPS_DIR.glob("*.mp4")) + list(CLIPS_DIR.glob("*.mov")) if p.stat().st_size > 10000]
+    ep_clips_dir = _episode_clips_dir(episode_id)
+    available_clips = (
+        [p for p in list(ep_clips_dir.glob("*.mp4")) + list(ep_clips_dir.glob("*.mov")) if p.stat().st_size > 10000]
+        if ep_clips_dir.exists()
+        else []
+    )
+    if not available_clips and ep_clips_dir != CLIPS_DIR and CLIPS_DIR.exists():
+        available_clips = [p for p in list(CLIPS_DIR.glob("*.mp4")) + list(CLIPS_DIR.glob("*.mov")) if p.stat().st_size > 10000]
+
     mode_label = (
         f"REAL MOVING AI VIDEO CLIPS ({len(available_clips)} clips)"
         if available_clips
@@ -506,14 +643,15 @@ def stitch_episode_video(
     for b in blocks:
         dur = block_duration_override if block_duration_override > 0 else (b["end_sec"] - b["start_sec"])
         total_duration += dur
-        b_file = render_fast_cut_block(b, block_duration=dur, temp_dir=temp_dir)
+        b_file = render_fast_cut_block(b, block_duration=dur, temp_dir=temp_dir, episode_id=episode_id)
         block_files.append(b_file)
         print(f"  ✓ Block {b['block']:02d}: {b['scene_title']} ({dur}s fast-cut)")
 
     concat_list_path = temp_dir / "concat_list.txt"
     with open(concat_list_path, "w", encoding="utf-8") as f:
         for bf in block_files:
-            f.write(f"file '{bf.resolve()}'\n")
+            escaped_bf = str(bf.resolve()).replace("'", "'\\''")
+            f.write(f"file '{escaped_bf}'\n")
 
     # Step 3: Audio priority -> 1) Manual Suno/Udio file in audio/, 2) Lyria 3.5 AI Song, 3) Demo Mix
     uploaded_audio = _find_uploaded_audio(episode_id)
@@ -535,7 +673,7 @@ def stitch_episode_video(
             subprocess.run(
                 [
                     "ffmpeg", "-y", "-i", str(inst_wav), "-i", str(vocal_wav),
-                    "-filter_complex", "[0:a]volume=0.55[a0];[1:a]volume=1.35[a1];[a0][a1]amix=inputs=2:duration=first[aout]",
+                    "-filter_complex", "[0:a]volume=0.55[a0];[1:a]volume=1.35[a1];[a0][a1]amix=inputs=2:duration=first:normalize=0[aout]",
                     "-map", "[aout]", str(mixed_wav),
                 ],
                 check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
@@ -546,30 +684,59 @@ def stitch_episode_video(
 
     srt_path = EPISODES_DIR / f"{episode_id}.srt"
     if not srt_path.exists():
-        srt_path = EPISODES_DIR / "ep01_hanuman_chalisa.srt"
+        legacy_ep1_srt = EPISODES_DIR / "ep01_hanuman_chalisa.srt"
+        if episode_id == "ep01_kids_hanuman_chalisa" and legacy_ep1_srt.exists():
+            srt_path = legacy_ep1_srt
+        elif config.get("blocks_15s"):
+            write_srt_from_blocks(config["blocks_15s"], srt_path)
 
     suffix = "_preview" if preview_blocks > 0 else "_full"
     final_mp4 = OUTPUT_DIR / f"{episode_id}{suffix}.mp4"
 
+    # Match full video cleanly to real song length (if >= 60s) or pad short audio so video never cuts abruptly
+    audio_dur = _get_media_duration(audio_input)
+    if preview_blocks == 0 and uploaded_audio and 60.0 <= audio_dur < float(total_duration):
+        target_duration = audio_dur
+        print(f"[Step 4] Syncing video duration to master song length: {target_duration:.1f}s")
+    else:
+        target_duration = float(total_duration)
+
+    fade_start = max(0.0, target_duration - 1.2)
+
     # Check if Noto Devanagari / Hindi font is available for crisp burned-in karaoke captions
+    hindi_font, fonts_dir = _detect_hindi_font()
     vf_brand = (
         "drawtext=text='Kashti Music Studio  |  @kashtimusicstudio':x=w-tw-24:y=20:"
         "fontsize=20:fontcolor=white@0.85:box=1:boxcolor=black@0.45:boxborderw=6"
     )
     if srt_path.exists():
-        escaped_srt = str(srt_path.resolve()).replace(":", "\\:")
-        vf_chain = f"subtitles='{escaped_srt}':force_style='FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,MarginV=26',{vf_brand}"
+        escaped_srt = _escape_ffmpeg_filter_path(srt_path)
+        style_parts = [
+            f"FontName={hindi_font}" if hindi_font else "",
+            "FontSize=20",
+            "PrimaryColour=&H00FFFFFF",
+            "OutlineColour=&H00000000",
+            "BorderStyle=1",
+            "Outline=2",
+            "MarginV=26",
+        ]
+        force_style = ",".join(p for p in style_parts if p)
+        fontsdir_opt = f":fontsdir='{_escape_ffmpeg_filter_path(fonts_dir)}'" if fonts_dir else ""
+        vf_chain = f"subtitles='{escaped_srt}'{fontsdir_opt}:force_style='{force_style}',{vf_brand},fade=t=out:st={fade_start:.2f}:d=1.2"
     else:
-        vf_chain = vf_brand
+        vf_chain = f"{vf_brand},fade=t=out:st={fade_start:.2f}:d=1.2"
+
+    af_chain = f"apad=whole_dur={target_duration:.3f},afade=t=out:st={fade_start:.2f}:d=1.2"
 
     cmd = [
         "ffmpeg", "-y", "-f", "concat", "-safe", "0",
         "-i", str(concat_list_path),
         "-i", str(audio_input),
         "-vf", vf_chain,
-        "-t", str(total_duration),
+        "-af", af_chain,
+        "-t", f"{target_duration:.3f}",
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-b:a", "192k", "-shortest",
+        "-c:a", "aac", "-b:a", "192k",
         str(final_mp4),
     ]
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
@@ -662,7 +829,7 @@ def upload_to_youtube(
     video_id = response["id"]
     print(f"[Step 5] ✅ LIVE on YouTube: https://youtu.be/{video_id}")
 
-    thumb_path = KEYFRAMES_DIR / "frame_01_greeting.jpg"
+    thumb_path, _ = _resolve_keyframe("frame_01_greeting.jpg", config.get("episode_id", "ep01_kids_hanuman_chalisa"))
     if thumb_path.exists():
         try:
             youtube.thumbnails().set(videoId=video_id, media_body=MediaFileUpload(str(thumb_path))).execute()
@@ -700,7 +867,13 @@ def run_zero_touch_weekly_pipeline(week_num: int = 0, publish_at_iso: str = "", 
 
     auto_generate_visuals_via_gemini(ep_cfg, api_key, enable_veo=enable_veo)
     final_mp4 = stitch_episode_video(ep_json, api_key=api_key)
-    upload_to_youtube(final_mp4, ep_json, BASE_DIR / "client_secrets.json", publish_at_iso)
+    video_id = upload_to_youtube(final_mp4, ep_json, BASE_DIR / "client_secrets.json", publish_at_iso)
+    if video_id:
+        target_week["status"] = "published"
+        target_week["youtube_video_id"] = video_id
+        with open(CALENDAR_FILE, "w", encoding="utf-8") as f:
+            json.dump(cal, f, ensure_ascii=False, indent=2)
+        print(f"[Step 5] ✅ Marked Week {target_week['week']} as published in weekly_calendar.json")
     return final_mp4
 
 

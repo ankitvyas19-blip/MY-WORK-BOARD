@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Kashti Music Studio Weekly Pipeline Every Friday 12:00 PM IST (06:30 UTC)
+
+[Timer]
+OnCalendar=Fri *-*-* 06:30:00 UTC
+Persistent=true
+Unit=kashti-studio.service
+
+[Install]
+WantedBy=timers.target

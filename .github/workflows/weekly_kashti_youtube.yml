@@ -26,7 +26,8 @@ jobs:
 
       - name: Install FFmpeg, Hindi Fonts & Google GenAI + YouTube SDKs
         run: |
-          sudo apt-get update && sudo apt-get install -y ffmpeg fonts-noto-core fonts-noto-extra
+          sudo apt-get update && sudo apt-get install -y ffmpeg fonts-noto-core fonts-noto-extra fontconfig
+          fc-cache -f
           pip install google-genai google-api-python-client google-auth-oauthlib google-auth-httplib2
 
       - name: Run 100% Zero-Touch AI Music Video Pipeline (Veo 3.1 + Lyria 3.5 + Fast-Cut + YouTube)
@@ -40,6 +41,7 @@ jobs:
           python3 kashti-music-studio/kashti_auto_studio.py --mode zero-touch --week "$WEEK_ARG"
 
       - name: Upload Rendered MP4 as Build Artifact (Backup)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: kashti-weekly-music-video

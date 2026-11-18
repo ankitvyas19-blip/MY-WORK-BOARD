@@ -1,0 +1,14 @@
+[Unit]
+Description=Kashti Music Studio — Zero-Touch AI Music Video & YouTube Pipeline
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=__APP_DIR__/kashti-music-studio
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+EnvironmentFile=-__APP_DIR__/.env
+ExecStart=__APP_DIR__/kashti-music-studio/.venv/bin/python3 __APP_DIR__/kashti-music-studio/kashti_auto_studio.py --mode zero-touch --week 0
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=kashti-studio
